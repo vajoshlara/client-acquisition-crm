@@ -1,0 +1,13 @@
+# build output
+dist/
+test/site/
+test/shots/
+
+# never commit Google credentials or local clasp config
+.clasprc.json
+.clasp.json
+clasprc*.json
+
+node_modules/
+__pycache__/
+.DS_Store

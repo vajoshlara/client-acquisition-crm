@@ -1,0 +1,152 @@
+name: Test and deploy to Apps Script
+
+# Runs on every push to main. Tests always run; the deploy runs only when the app
+# itself changed (not for docs-only commits) and only once the one-time setup in
+# DEPLOY.md is done. You can also run it by hand from the Actions tab.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:   # "Run workflow" on the Actions tab always deploys
+
+permissions:
+  contents: read
+
+# Never run two deploys at the same time; queue them instead.
+concurrency:
+  group: apps-script-deploy
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build the Apps Script bundle
+        run: python build.py
+
+      - name: Storage server tests (Code.gs against a simulated Drive)
+        run: node test/server.test.js
+
+      - name: Deploy script tests (against a fake clasp)
+        run: bash test/deploy.test.sh
+
+      - name: Install browser for end-to-end tests
+        run: |
+          pip install playwright==1.56.0
+          python -m playwright install --with-deps chromium
+
+      - name: End-to-end tests (real app + real Code.gs + simulated Drive)
+        run: bash scripts/run-e2e.sh
+
+      - name: Keep screenshots if tests fail
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: test/shots/
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apps-script-bundle
+          path: dist/apps-script/
+
+  changes:
+    name: Did the app change?
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.check.outputs.app }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: check
+        env:
+          BEFORE: ${{ github.event.before }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo "app=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "app=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if git diff --name-only "$BEFORE" "$GITHUB_SHA" | grep -qE '^(src/|server/|build\.py$|scripts/deploy-webapp\.mjs$)'; then
+            echo "app=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "app=false" >> "$GITHUB_OUTPUT"
+            echo "No app files changed in this push, so nothing was deployed (Apps Script keeps at most 200 versions)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  deploy:
+    name: Deploy to Apps Script
+    needs: [test, changes]
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: apps-script-bundle
+          path: dist/apps-script
+
+      - name: Check one-time setup
+        id: setup
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          SCRIPT_ID: ${{ vars.SCRIPT_ID || secrets.SCRIPT_ID }}
+        run: |
+          missing=""
+          [ -z "$SCRIPT_ID" ] && missing="$missing SCRIPT_ID"
+          [ -z "$CLASPRC_JSON" ] && missing="$missing CLASPRC_JSON"
+          if [ -n "$missing" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## ⏸️ Deploy waiting for setup"
+              echo "Tests passed, but the deploy is not set up yet. Missing:**$missing**."
+              echo "Follow **DEPLOY.md** (about 10 minutes, once). After that, every push deploys automatically."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Write clasp config (credentials stay in the runner's temp folder)
+        if: steps.setup.outputs.ready == 'true'
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          SCRIPT_ID: ${{ vars.SCRIPT_ID || secrets.SCRIPT_ID }}
+        run: |
+          umask 077
+          printf '%s' "$CLASPRC_JSON" > "$RUNNER_TEMP/clasprc.json"
+          node -e "JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'))" "$RUNNER_TEMP/clasprc.json" \
+            || { echo "::error::The CLASPRC_JSON secret is not valid JSON. Copy the whole file contents again (DEPLOY.md step 3)."; exit 1; }
+          node -e "require('fs').writeFileSync('.clasp.json', JSON.stringify({scriptId: process.argv[1].trim(), rootDir: 'dist/apps-script'}))" "$SCRIPT_ID"
+
+      - name: Push code and update the web app
+        if: steps.setup.outputs.ready == 'true'
+        env:
+          CLASP_AUTH: ${{ runner.temp }}/clasprc.json
+          CLASP_PROJECT: .clasp.json
+          DEPLOYMENT_ID: ${{ vars.DEPLOYMENT_ID }}
+        run: node scripts/deploy-webapp.mjs
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/clasprc.json" .clasp.json
