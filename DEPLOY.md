@@ -60,7 +60,7 @@ The deploy key lets GitHub update your Apps Script project. You'll create it in 
 **About this key**
 - **It's powerful.** It can manage your Apps Script projects and parts of your Google Cloud account.
 - **Where it lives.** Only in GitHub's encrypted secrets. Workflows can use it, but nobody can read it back, including you.
-- **Keep it safe.** Keep the repository private, and don't give anyone else write access to it.
+- **Keep it safe.** The repository is public, but secrets never are: visitors can read the code, not the key. Don't give anyone else write access to the repository, because anyone who can change the workflow could use the key.
 - **Revoking it.** At any time, go to **https://myaccount.google.com/permissions**, find **clasp – The Apps Script CLI**, and remove access. Deploys then stop until you create a new key.
 
 > Have Node.js 20+ on your own computer? You can run the same command there instead of Cloud Shell. The file is in your home folder: `~/.clasprc.json` on Mac/Linux, `%USERPROFILE%\.clasprc.json` on Windows.
