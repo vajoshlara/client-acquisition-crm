@@ -302,6 +302,26 @@ function save(ctx, baseSeq, data, extra) {
   ok(ctx.api_unlock({ passcode: 'Fresh-Start-1' }).ok, 'reset passcode unlocks');
 }
 
+// 18. Session tokens (default) vs remembered devices
+{
+  const { env, ctx } = boot();
+  const first = ctx.api_setPasscode({ newPasscode: 'Session-Test-1' });
+  ok(first.ok && first.remember === false && first.hours === 12, 'default token is a 12-hour session');
+  const dev = ctx.api_unlock({ passcode: 'Session-Test-1', remember: true, label: 'home laptop' });
+  ok(dev.ok && dev.remember === true && dev.hours === 90 * 24, 'remembered device gets 90 days');
+  const recs = JSON.parse(env._props.CRM_DEVICE_TOKENS);
+  const kinds = Object.values(recs).map(r => r.kind).sort();
+  ok(kinds.join() === 'device,session', 'token kinds stored');
+  const sess = Object.values(recs).find(r => r.kind === 'session');
+  ok(Math.abs(sess.exp - sess.created - 12 * 3600000) < 1000, 'session expires after 12 hours');
+  for (let i = 0; i < 30; i++) ctx.api_unlock({ passcode: 'Session-Test-1' });
+  ok(ctx.api_head({ token: dev.token }).ok, 'many sessions never push out a remembered device');
+  const after = Object.values(JSON.parse(env._props.CRM_DEVICE_TOKENS));
+  ok(after.filter(r => r.kind === 'session').length === 20, 'sessions capped at 20');
+  const st = ctx.api_authStatus({ token: dev.token });
+  ok(st.devices === 1 && st.sessions === 20, 'status counts devices and sessions separately');
+}
+
 // 17. First passcode from a phone (public link, nobody signed in), via a setup code in Drive
 {
   const { env, ctx } = boot();

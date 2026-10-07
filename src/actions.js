@@ -540,7 +540,9 @@ async function submitLockForm(form) {
   btn.disabled = true;
   msg.textContent = '';
   try {
-    const r = codeEl ? await Sync.setPasscode(pass, '', codeEl.value) : await Sync.unlock(pass);
+    const rem = form.querySelector('#lock-remember');
+    const remember = !!(rem && rem.checked);
+    const r = codeEl ? await Sync.setPasscode(pass, '', codeEl.value, remember) : await Sync.unlock(pass, remember);
     if (!r.ok) {
       msg.textContent = r.message || 'That didn’t work. Try again.';
       btn.disabled = false;
@@ -569,7 +571,7 @@ ACTIONS['passcode-save'] = async el => {
   try {
     const r = await Sync.setPasscode(next, cur ? cur.value : '');
     if (!r.ok) { msg.textContent = r.message || 'That didn’t work.'; el.disabled = false; return; }
-    UI.toast(cur ? 'Passcode changed. Other devices will need the new passcode.' : 'Passcode set. This device is unlocked for 90 days.');
+    UI.toast(cur ? 'Passcode changed. Other devices will need the new passcode.' : 'Passcode set. You’ll be asked for it each time the CRM opens.');
   } catch (e) {
     msg.textContent = friendlyError(e);
     el.disabled = false;
@@ -583,6 +585,11 @@ ACTIONS['passcode-signout-others'] = async () => {
   else if (r && r.message) UI.toast(r.message, 'error');
 };
 ACTIONS['passcode-lock'] = () => Sync.lockThisDevice();
+ACTIONS['passcode-forget'] = () => {
+  Auth.save(Auth.token, false);
+  UI.toast('This device will ask for the passcode next time the CRM opens.');
+  UI.render();
+};
 
 /* ------------------------------------------------------------ settings edits */
 function setMutate(fn) { Store.mutate('settings', d => { fn(d.settings, d); touch(d.settings); }); }

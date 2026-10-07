@@ -79,7 +79,7 @@ Keyboard: `/` jumps to search, and `Esc` closes panels and dialogs.
 
 The CRM link can be opened on any device, with no Google sign-in. A passcode keeps your data private.
 
-- **New devices** ask for the passcode once and then stay unlocked for 90 days.
+- **It asks every time** the CRM is opened, refreshed or reopened. On a device you trust you can tick **Keep this device unlocked for 90 days** on the passcode screen; undo it in **Settings → Passcode & devices**.
 - **Settings → Passcode & devices** lets you change the passcode, sign out other devices, or lock the current device.
 - **The server checks it.** Without the passcode, the server refuses to send or change any data, even to someone who has the link. After 8 wrong tries it pauses for 15 minutes.
 - **First time, or forgot it?** On the lock screen tap **Forgot passcode?** (or **Get a setup code** the first time).

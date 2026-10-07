@@ -254,10 +254,11 @@ function lockScreen() {
   if (L.mode !== 'setup') {
     return `<div class="boot lock" id="lock-screen">${mark}
     <h1>Enter your passcode</h1>
-    <p>Client Acquisition CRM. This device stays unlocked for 90 days.</p>
+    <p>Client Acquisition CRM. You’ll be asked each time you open or refresh it, unless you keep this device unlocked.</p>
     <form id="lock-form" class="lock-form" autocomplete="on" novalidate>
       <label class="sr" for="lock-pass">Passcode</label>
       <input id="lock-pass" class="inp" type="password" name="passcode" autocomplete="current-password" placeholder="Passcode" required>
+      <label class="check-inline lock-remember"><input type="checkbox" id="lock-remember"> Keep this device unlocked for 90 days</label>
       <button class="btn btn-primary" type="submit">Unlock</button>
       <div id="lock-msg" class="field-error" role="alert"></div>
     </form>
@@ -288,6 +289,7 @@ function lockScreen() {
       <input id="lock-pass" class="inp" type="password" name="passcode" autocomplete="new-password" placeholder="New passcode" required>
       <label class="sr" for="lock-pass2">Confirm passcode</label>
       <input id="lock-pass2" class="inp" type="password" name="confirm" autocomplete="new-password" placeholder="Type it again">
+      <label class="check-inline lock-remember"><input type="checkbox" id="lock-remember"> Keep this device unlocked for 90 days</label>
       <button class="btn btn-primary" type="submit">Save passcode</button>
       <div id="lock-msg" class="field-error" role="alert"></div>
     </form>

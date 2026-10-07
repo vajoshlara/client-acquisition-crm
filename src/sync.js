@@ -5,16 +5,29 @@
 
 const LS_KEY = 'crm_acq_buffer_v1';
 const LS_DEVICE = 'crm_acq_device_v1';
-const LS_TOKEN = 'crm_acq_token_v1';
+const LS_TOKEN = 'crm_acq_token_v2';
+const LS_TOKEN_OLD = 'crm_acq_token_v1';   // earlier versions remembered every device; dropped so each device is asked once more
 
-/** Passcode lock: a device token proves this browser entered the passcode. */
+/** Passcode lock: a token proves this browser entered the passcode.
+ *  By default it lives in memory only, so a refresh, new tab or reopen asks again.
+ *  "Keep this device unlocked" stores it in localStorage (90 days). */
 const Auth = {
   token: null,
-  status: null,   // from the server: { passcodeSet, canSetPasscode, unlocked, devices }
-  load() { try { this.token = localStorage.getItem(LS_TOKEN) || null; } catch (e) { this.token = null; } },
-  save(t) {
+  remembered: false,
+  status: null,   // from the server: { passcodeSet, canSetPasscode, unlocked, devices, sessions }
+  load() {
+    try {
+      localStorage.removeItem(LS_TOKEN_OLD);
+      this.token = localStorage.getItem(LS_TOKEN) || null;
+    } catch (e) { this.token = null; }
+    this.remembered = !!this.token;
+  },
+  save(t, remember) {
     this.token = t || null;
-    try { if (t) localStorage.setItem(LS_TOKEN, t); else localStorage.removeItem(LS_TOKEN); } catch (e) { /* kept in memory */ }
+    this.remembered = !!(t && remember);
+    try {
+      if (this.remembered) localStorage.setItem(LS_TOKEN, t); else localStorage.removeItem(LS_TOKEN);
+    } catch (e) { this.remembered = false; /* kept in memory */ }
   },
   label() {
     const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
@@ -396,10 +409,10 @@ const Sync = {
     UI.render();
   },
 
-  async unlock(passcode) {
-    const r = await gas('api_unlock', { passcode, label: Auth.label() }, 30000);
+  async unlock(passcode, remember) {
+    const r = await gas('api_unlock', { passcode, remember: !!remember, label: Auth.label() }, 30000);
     if (!r || !r.ok) return r || { message: 'No response' };
-    Auth.save(r.token);
+    Auth.save(r.token, r.remember);
     this.locked = null;
     await this.connect();
     return { ok: true };
@@ -427,10 +440,11 @@ const Sync = {
   },
 
   /** First passcode (owner signed in, or with a setup code), a reset (setup code), or a change (needs current passcode). */
-  async setPasscode(newPasscode, currentPasscode, setupCode) {
-    const r = await gas('api_setPasscode', { newPasscode, currentPasscode: currentPasscode || '', setupCode: setupCode || '', label: Auth.label() }, 30000);
+  async setPasscode(newPasscode, currentPasscode, setupCode, remember) {
+    const keep = remember === undefined ? Auth.remembered : !!remember;
+    const r = await gas('api_setPasscode', { newPasscode, currentPasscode: currentPasscode || '', setupCode: setupCode || '', remember: keep, label: Auth.label() }, 30000);
     if (!r || !r.ok) return r || { message: 'No response' };
-    Auth.save(r.token);
+    Auth.save(r.token, r.remember);
     if (this.locked) { this.locked = null; await this.connect(); }
     else await this.refreshAuth();
     return { ok: true };

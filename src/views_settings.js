@@ -78,7 +78,7 @@ SETTINGS.security = function () {
   const a = Auth.status || {};
   if (!a.passcodeSet) {
     return `<section class="panel"><div class="panel-head"><h2>Set a passcode</h2></div>
-      <p class="pad">With a passcode, your CRM link can open on any device, including your phone, without signing in to Google. Each device asks for the passcode once and then stays unlocked for 90 days. Without the passcode, nobody can see or change your data, even if they have the link.</p>
+      <p class="pad">With a passcode, your CRM link can open on any device, including your phone, without signing in to Google. It asks for the passcode every time the CRM is opened or refreshed, unless you tick “Keep this device unlocked” on a device you trust. Without the passcode, nobody can see or change your data, even if they have the link.</p>
       ${a.canSetPasscode ? `<div class="form-grid pad">
         <label class="fld"><span>New passcode</span><input class="inp" id="pc-new" type="password" autocomplete="new-password" placeholder="At least 6 characters"></label>
         <label class="fld"><span>Type it again</span><input class="inp" id="pc-confirm" type="password" autocomplete="new-password"></label>
@@ -89,8 +89,9 @@ SETTINGS.security = function () {
     </section>`;
   }
   return `<section class="panel"><div class="panel-head"><h2>Passcode is on</h2></div>
-      <p class="pad">Your CRM asks for the passcode on each new device. ${plural(a.devices || 0, 'device is', 'devices are')} unlocked right now (including this one), each for up to 90 days.</p>
+      <p class="pad">Your CRM asks for the passcode every time it is opened or refreshed. ${Auth.remembered ? '<strong>This device is kept unlocked</strong> (up to 90 days). ' : 'This device is unlocked until you refresh or close the tab. '}${plural(a.devices || 0, 'trusted device stays', 'trusted devices stay')} unlocked for up to 90 days.</p>
       <div class="pad btn-row"><button class="btn" data-act="passcode-signout-others">Sign out all other devices</button>
+        ${Auth.remembered ? '<button class="btn" data-act="passcode-forget">Stop keeping this device unlocked</button>' : ''}
         <button class="btn" data-act="passcode-lock">Lock this device now</button></div>
     </section>
     <section class="panel"><div class="panel-head"><h2>Change passcode</h2></div>

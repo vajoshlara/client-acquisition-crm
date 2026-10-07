@@ -254,6 +254,9 @@ function api_save(req) {
  *    write that code into a text file in the CRM's Drive folder, so only someone
  *    who can open the owner's Google Drive can read it (e.g. the Drive app on a
  *    phone). The code expires after SETUP_MINUTES and the file is trashed once used.
+ *  - By default the browser keeps its token in memory only, so every refresh,
+ *    new tab or reopen asks for the passcode again. "Keep this device unlocked"
+ *    stores a TOKEN_DAYS token on that device instead.
  *  - Wrong passcodes and wrong setup codes are limited: after MAX_FAILS the lock
  *    holds for LOCK_SECONDS.
  */
@@ -264,7 +267,7 @@ var AUTH = {
   PROP_CODE_MADE: 'CRM_SETUP_CODE_MADE', PROP_CODE_FILE: 'CRM_SETUP_CODE_FILE',
   SETUP_FILE: 'CRM passcode setup code.txt', SETUP_MINUTES: 30, SETUP_REUSE_MIN_LEFT: 10,
   CODE_CHARS: 'ABCDEFGHJKMNPQRSTUVWXYZ23456789',
-  TOKEN_DAYS: 90, MAX_TOKENS: 12, MAX_FAILS: 8, LOCK_SECONDS: 900, ITER: 400, MIN_LEN: 6, MAX_LEN: 64
+  TOKEN_DAYS: 90, MAX_TOKENS: 12, SESSION_HOURS: 12, MAX_SESSIONS: 20, MAX_FAILS: 8, LOCK_SECONDS: 900, ITER: 400, MIN_LEN: 6, MAX_LEN: 64
 };
 
 function api_authStatus(req) {
@@ -280,8 +283,14 @@ function api_unlock(req) {
     var pass = String((req && req.passcode) || '');
     if (!checkPasscode_(pass)) return recordFailure_();
     clearFailures_();
-    return { ok: true, token: issueToken_(req && req.label), days: AUTH.TOKEN_DAYS };
+    return tokenReply_(req);
   });
+}
+
+/** A remembered device keeps its token for TOKEN_DAYS; otherwise the browser keeps it in memory only (gone on refresh) and it expires after SESSION_HOURS. */
+function tokenReply_(req) {
+  var remember = !!(req && req.remember);
+  return { ok: true, token: issueToken_(req && req.label, remember), remember: remember, hours: remember ? AUTH.TOKEN_DAYS * 24 : AUTH.SESSION_HOURS };
 }
 
 function api_setPasscode(req) {
@@ -314,7 +323,7 @@ function api_setPasscode(req) {
     props.setProperty(AUTH.PROP_TOKENS, '{}');           // every other device must unlock again
     clearFailures_();
     if (viaCode) clearSetupCode_();
-    return { ok: true, token: issueToken_(req && req.label), days: AUTH.TOKEN_DAYS };
+    return tokenReply_(req);
   });
 }
 
@@ -422,7 +431,8 @@ function authStatus_(req) {
     passcodeSet: set,
     unlocked: set ? tokenValid_(req && req.token) : isOwner_(),
     canSetPasscode: !set && isOwner_(),
-    devices: set ? Object.keys(tokens_()).length : 0
+    devices: set ? countTokens_('device') : 0,
+    sessions: set ? countTokens_('session') : 0
   };
 }
 
@@ -458,23 +468,35 @@ function tokens_() {
   catch (e) { return {}; }
 }
 
+function tokenKind_(rec) { return rec && rec.kind === 'session' ? 'session' : 'device'; }
+
+function countTokens_(kind) {
+  var t = tokens_(), now = new Date().getTime();
+  return Object.keys(t).filter(function (k) { return t[k] && t[k].exp > now && tokenKind_(t[k]) === kind; }).length;
+}
+
+/** Drops expired tokens and keeps the newest MAX_TOKENS remembered devices and MAX_SESSIONS sessions (counted separately, so opening the CRM often never pushes out a remembered device). */
 function saveTokens_(t) {
   var now = new Date().getTime();
-  var keys = Object.keys(t).filter(function (k) { return t[k] && t[k].exp > now; })
-    .sort(function (a, b) { return t[b].created - t[a].created; }).slice(0, AUTH.MAX_TOKENS);
-  var out = {};
-  keys.forEach(function (k) { out[k] = t[k]; });
+  var live = Object.keys(t).filter(function (k) { return t[k] && t[k].exp > now; })
+    .sort(function (a, b) { return t[b].created - t[a].created; });
+  var out = {}, n = { device: 0, session: 0 };
+  live.forEach(function (k) {
+    var kind = tokenKind_(t[k]);
+    if (n[kind] < (kind === 'session' ? AUTH.MAX_SESSIONS : AUTH.MAX_TOKENS)) { out[k] = t[k]; n[kind]++; }
+  });
   PropertiesService.getScriptProperties().setProperty(AUTH.PROP_TOKENS, JSON.stringify(out));
 }
 
-function issueToken_(label) {
+function issueToken_(label, remember) {
   var raw = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
   var lock = LockService.getScriptLock();
   var got = lock.tryLock(10000);
   try {
     var t = tokens_();
     var now = new Date().getTime();
-    t[sha256Hex_(raw)] = { created: now, exp: now + AUTH.TOKEN_DAYS * 86400000, label: String(label || '').slice(0, 60) };
+    var ttl = remember ? AUTH.TOKEN_DAYS * 86400000 : AUTH.SESSION_HOURS * 3600000;
+    t[sha256Hex_(raw)] = { created: now, exp: now + ttl, label: String(label || '').slice(0, 60), kind: remember ? 'device' : 'session' };
     saveTokens_(t);
   } finally { if (got) lock.releaseLock(); }
   return raw;

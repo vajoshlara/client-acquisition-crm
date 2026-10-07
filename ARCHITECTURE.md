@@ -160,7 +160,7 @@ Built-in stage side effects:
 **Passcode lock** (`server/Code.gs` → passcode section). It lets the web app be opened without a Google sign-in, for example on a phone, while the data stays private.
 
 - **Storage.** Only a salted, iterated SHA-256 hash of the passcode is kept in Script Properties.
-- **Device tokens.** A correct passcode gets a random device token, valid for 90 days. Only the token's hash is stored, and at most 12 devices are kept.
+- **Tokens.** A correct passcode gets a random token. By default the browser keeps it in memory only (a refresh, new tab or reopen asks again) and it expires after 12 hours. Ticking **Keep this device unlocked** stores it in localStorage for 90 days. Only token hashes are stored on the server: at most 12 remembered devices and 20 sessions, capped separately.
 - **Checks.** Every data call (bootstrap, head, list, get, save) checks the token on the server.
 - **First passcode and resets.** Before a passcode exists, only the signed-in owner gets in. Setting the first passcode, or a new one after forgetting it, needs the owner signed in or a one-time **setup code**. The server writes the code to a text file in the CRM's Drive folder (only its hash goes to Script Properties) and never returns it to the browser, so only someone who can open the owner's Drive can read it. Codes are 8 characters, expire after 30 minutes, work once, share the wrong-guess limit with passcodes, and the file is trashed after use.
 - **Wrong guesses.** They're counted in CacheService. After 8, unlocking pauses for 15 minutes.

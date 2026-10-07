@@ -8,5 +8,5 @@
     UI.render();
   });
   // exposed for debugging and automated tests
-  window.CRM = { Store, Sync, UI, Clock, Engine, Modal, api: { createProspect, moveStage, mergeData, computeMetrics, processDueJobs, sha256Hex, normalizeData, newData } };
+  window.CRM = { Store, Sync, Auth, UI, Clock, Engine, Modal, api: { createProspect, moveStage, mergeData, computeMetrics, processDueJobs, sha256Hex, normalizeData, newData } };
 })();
