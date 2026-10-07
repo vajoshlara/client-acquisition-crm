@@ -21,8 +21,8 @@ const UI = {
   settingsTab: 'drive',
   calendar: { month: '', selected: '' },
   filters: {
-    prospects: { seg: 'open', q: '', stage: '', source: '', service: '', priority: '', temp: '', tag: '', dateField: 'discoveredDate', from: '', to: '', sort: 'updatedAt', dir: 'desc' },
-    pipeline: { q: '', source: '', service: '', priority: '', temp: '', tag: '' },
+    prospects: { seg: 'open', clientStatus: '', q: '', stage: '', source: '', service: '', priority: '', temp: '', tag: '', dateField: 'discoveredDate', from: '', to: '', sort: 'updatedAt', dir: 'desc' },
+    pipeline: { layout: 'board', q: '', source: '', service: '', priority: '', temp: '', tag: '' },
     tasks: { tab: 'today', q: '', priority: '', type: '' },
     archive: { q: '', reason: '' },
     trash: { q: '' },
@@ -282,9 +282,13 @@ function dueBadge(date, done) {
 function lifecycleBadge(p) {
   if (p.lifecycle === 'archived') return '<span class="badge badge-muted">Archived</span>';
   if (p.lifecycle === 'trashed') return '<span class="badge badge-bad">In Trash</span>';
-  if (p.outcome === 'won') return `<span class="badge badge-good">${icon('trophy')}Won</span>`;
+  if (p.outcome === 'won') return clientBadge(p);
   if (p.outcome === 'lost') return '<span class="badge badge-lost">Lost</span>';
   return '';
+}
+function clientBadge(p) {
+  if (isPastClient(p)) return '<span class="badge badge-muted">Past client</span>';
+  return `<span class="badge badge-good">${icon('trophy')}Current client</span>`;
 }
 function emptyState(ic, title, text, actions) {
   return `<div class="empty">${icon(ic)}<h3>${esc(title)}</h3>${text ? `<p>${text}</p>` : ''}${actions ? `<div class="empty-actions">${actions}</div>` : ''}</div>`;

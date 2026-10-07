@@ -32,6 +32,29 @@ ACTIONS['new-prospect'] = el => {
   UI.render();
 };
 ACTIONS['open-prospect'] = el => UI.openProspect(el.dataset.id);
+ACTIONS['new-client'] = () => {
+  UI.form = null;
+  UI.drawer = { mode: 'create', kind: 'client' };
+  UI.navOpen = false;
+  UI.render();
+};
+ACTIONS['client-end'] = async el => {
+  const p = P(el.dataset.id);
+  const date = await pickDate('Mark engagement ended', 'When did your work with <strong>' + esc(prospectName(p)) + '</strong> end? They move to your past clients, with all history kept.', todayStr());
+  if (!date) return;
+  Store.mutate('client-end', d => setEngagement(d, p.id, 'past', date));
+  UI.toast(prospectName(p) + ' is now a past client.');
+};
+ACTIONS['client-resume'] = el => {
+  const p = P(el.dataset.id);
+  Store.mutate('client-resume', d => setEngagement(d, p.id, 'current'));
+  UI.toast(prospectName(p) + ' is a current client again.');
+};
+ACTIONS['grid-toggle'] = el => {
+  UI.gridCollapsed = UI.gridCollapsed || {};
+  UI.gridCollapsed[el.dataset.stage] = !UI.gridCollapsed[el.dataset.stage];
+  UI.render();
+};
 ACTIONS['drawer-close'] = () => UI.closeDrawer();
 ACTIONS['drawer-tab'] = el => { UI.drawer.tab = el.dataset.tab; UI.render(); };
 ACTIONS['edit-prospect'] = el => { UI.form = null; UI.drawer = { mode: 'edit', id: el.dataset.id, tab: UI.drawer && UI.drawer.tab }; UI.render(); };
@@ -81,20 +104,31 @@ function submitProspectForm(form) {
   }
   if (!pid) {
     let created;
+    const asClient = UI.drawer && UI.drawer.kind === 'client';
+    if (asClient && f.clientStatus === 'past' && f.clientUntil && f.clientSince && f.clientUntil < f.clientSince) {
+      UI.form = { values: formValues(form), errors: { clientUntil: 'The end date is before the start date.' } };
+      UI.render();
+      return;
+    }
     Store.mutate('create', dd => {
-      created = createProspect(dd, f);
+      created = asClient ? createClient(dd, f) : createProspect(dd, f);
       if (f.firstNote && f.firstNote.trim()) addNote(dd, created.id, f.firstNote);
     });
     UI.form = null;
     UI.drawer = { mode: 'view', id: created.id, tab: 'overview' };
     UI.render();
-    UI.toast('Added ' + prospectName(created) + '.');
+    UI.toast(asClient ? 'Added ' + prospectName(created) + ' as ' + (f.clientStatus === 'past' ? 'a past' : 'a current') + ' client.' : 'Added ' + prospectName(created) + '.');
   } else {
     const p = d.prospects[pid];
     const target = stageById(d, f.stageId);
     const moving = f.stageId && f.stageId !== p.stageId;
     const finish = ctx => {
-      Store.mutate('edit', dd => updateProspect(dd, pid, f, ctx));
+      Store.mutate('edit', dd => {
+        updateProspect(dd, pid, f, ctx);
+        if (dd.prospects[pid].outcome === 'won' && f.clientStatus && !moving) {
+          updateClientDetails(dd, pid, { status: f.clientStatus, since: f.clientSince, until: f.clientUntil });
+        }
+      });
       UI.form = null;
       UI.drawer = { mode: 'view', id: pid, tab: 'overview' };
       UI.render();

@@ -102,6 +102,34 @@ code { font-size: 12.5px; background: var(--surface-3); padding: 1px 5px; border
 .view.view-wide { max-width: none; }
 .scrim { display: none; }
 
+/* ---------------- board/grid toggle, grid view, clients */
+.seg-toggle { display: inline-flex; background: var(--surface-3); border-radius: var(--r); padding: 3px; gap: 2px; }
+.seg-toggle button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-weight: 500; color: var(--ink-2); }
+.seg-toggle button .ic { width: 15px; height: 15px; }
+.seg-toggle button.on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(15,46,40,.12); }
+.gtable .g-head th { background: var(--surface-3); padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.gtable .g-head th { display: flex; align-items: center; justify-content: space-between; }
+.gtable tbody.g-group tr.g-head { display: table-row; }
+.gtable tbody.g-group tr.g-head th { display: table-cell; }
+.g-toggle { display: inline-flex; align-items: center; gap: 8px; border: 0; background: none; cursor: pointer; font-weight: 600; font-size: 13.5px; color: var(--ink); padding: 2px 4px; }
+.g-toggle .ic { width: 14px; height: 14px; color: var(--ink-3); }
+.g-toggle .kcol-n { margin-left: 2px; }
+.g-head .icon-btn { float: right; }
+.g-group .kcol-dot { background: var(--stage); }
+.g-sub { display: block; font-size: 12px; color: var(--ink-3); max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gtable td .fsel.sm { max-width: 190px; }
+.gtable tr.prio-row-high td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
+.gtable tr.prio-row-medium td:first-child { box-shadow: inset 3px 0 0 #e09a00; }
+.g-next .due { display: inline-flex; }
+.g-name { min-width: 230px; }
+.g-name-in { display: flex; align-items: center; gap: 10px; }
+.g-name-in > div { display: flex; flex-direction: column; min-width: 0; }
+.g-name-in span { color: var(--ink-3); font-size: 12.5px; }
+.chips-row { display: flex; gap: 6px; margin: -4px 0 12px; flex-wrap: wrap; }
+.chip-btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-h); font-weight: 600; }
+.dn-client > .ic { color: var(--good-ink); }
+.kcard-title.muted { font-style: italic; }
+
 /* ---------------- banners */
 .banner { display: flex; align-items: flex-start; gap: 10px; padding: 11px 28px; font-size: 13.5px; border-bottom: 1px solid var(--line); }
 .banner .ic { margin-top: 2px; }
@@ -676,4 +704,7 @@ select.inp { appearance: none; background-image: url("data:image/svg+xml,%3Csvg 
   .modal { border-radius: 14px 14px 0 0; width: 100%; }
   .edit-list li { flex-wrap: wrap; }
   .edit-list .el-meta { min-width: 0; }
+  .gtable tbody.g-group tr.g-head { display: block; }
+  .gtable tbody.g-group tr.g-head th { display: flex; align-items: center; justify-content: space-between; }
+  .page-actions { flex-wrap: wrap; }
 }

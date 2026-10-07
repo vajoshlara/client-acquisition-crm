@@ -46,7 +46,7 @@ function prospectView(d, p) {
 
   return `
   <header class="dr-head">
-    <div class="dr-title">${monogram(p)}<div><h2>${esc(prospectName(p))}</h2><p>${esc([p.title, p.contactName && p.contactName !== prospectName(p) ? p.contactName : ''].filter(Boolean).join(' · ') || 'No title yet')}</p></div>
+    <div class="dr-title">${monogram(p)}<div><h2>${esc(prospectName(p))}</h2><p>${esc([p.company ? p.title : (prospectName(p) === p.title ? '' : p.title), p.contactName && p.contactName !== prospectName(p) ? p.contactName : '', p.company ? '' : 'Company not disclosed'].filter(Boolean).join(' · ') || 'No title yet')}</p></div>
       <button class="icon-btn" data-act="drawer-close" aria-label="Close">${icon('x')}</button></div>
     ${lifecycleBar}
     <div class="dr-controls">
@@ -59,6 +59,9 @@ function prospectView(d, p) {
       ${active ? `<button class="icon-btn" data-act="archive" data-id="${p.id}" aria-label="Archive" title="Archive">${icon('archive')}</button>
       <button class="icon-btn" data-act="trash" data-id="${p.id}" aria-label="Delete" title="Move to Trash">${icon('trash')}</button>` : ''}
     </div>
+    ${active && isClient(p) ? `<div class="dr-next"><div class="dn dn-client">${icon('trophy')}<div><span>${isPastClient(p) ? 'Past client' : 'Current client'}</span>
+        <strong>${p.client && p.client.until ? esc(fmtDate(p.client.since, true)) + ' – ' + esc(fmtDate(p.client.until, true)) : 'Since ' + esc(fmtDate((p.client || {}).since || p.wonDate, true))}</strong></div>
+        ${isPastClient(p) ? `<button class="btn btn-sm" data-act="client-resume" data-id="${p.id}">Working together again</button>` : `<button class="btn btn-sm" data-act="client-end" data-id="${p.id}">Mark engagement ended</button>`}</div></div>` : ''}
     ${active ? `<div class="dr-next">
       <div class="dn">${icon('followups')}<div><span>Next follow-up</span>${nf ? `<strong>${esc(fmtDate(nf.dueDate, true))}</strong> ${dueBadge(nf.dueDate)}` : '<strong class="muted">None scheduled</strong>'}</div>
         ${nf ? `<button class="btn btn-sm btn-primary" data-act="fu-done" data-id="${nf.id}">${icon('check')}Done</button><button class="btn btn-sm" data-act="fu-reschedule" data-id="${nf.id}">Change</button>` : isOpen(p) ? `<button class="btn btn-sm" data-act="schedule-fu" data-id="${p.id}">Schedule</button>` : ''}</div>
@@ -86,8 +89,15 @@ function prospectOverview(d, p) {
   const link = (u, text) => u ? `<a href="${attr(u)}" target="_blank" rel="noopener" data-act="ext">${esc(text || u.replace(/^https?:\/\//, '').replace(/\/$/, ''))} ${icon('external')}</a>` : '';
   const cfs = d.settings.customFields;
   return `
-  <section class="dr-sec"><h3>Opportunity</h3><dl>
-    ${dlRow('Title', p.title)}
+  ${isClient(p) ? `<section class="dr-sec"><h3>Client</h3><dl>
+    ${dlRow('Status', isPastClient(p) ? 'Past client' : 'Current client')}
+    ${dlRow('Client since', (p.client || {}).since ? fmtDate(p.client.since, true) : '')}
+    ${isPastClient(p) ? dlRow('Ended', p.client.until ? fmtDate(p.client.until, true) : '') : ''}
+    ${p.historical ? dlRow('How it was added', 'Added with Add client, so it’s not counted in acquisition analytics') : ''}
+  </dl></section>` : ''}
+  <section class="dr-sec"><h3>${isClient(p) ? 'Work' : 'Opportunity'}</h3><dl>
+    ${dlRow('Company / client', p.company || 'Not disclosed')}
+    ${dlRow(isClient(p) ? 'Role / services' : 'Title', p.title)}
     ${dlRow('Service', serviceName(d, p.serviceId))}
     ${dlRow('Lead source', sourceName(d, p.sourceId))}
     ${dlRow('Opportunity link', link(p.url, 'Open posting'), true)}
@@ -168,6 +178,8 @@ function activitySummary(a) {
 /* ------------------------------------------------------------ prospect form */
 function prospectForm(d, p) {
   const isNew = !p;
+  const clientCreate = isNew && UI.drawer && UI.drawer.kind === 'client';
+  const showClient = clientCreate || (p && p.outcome === 'won');
   const saved = UI.form && UI.form.values;
   const errs = (UI.form && UI.form.errors) || {};
   const nf = p ? nextFollowUp(p.id) : null;
@@ -178,6 +190,9 @@ function prospectForm(d, p) {
     interviewAt: '', proposalDate: '', followUpDate: '', stageId: (UI.drawer && UI.drawer.stageId) || d.settings.stages[0].id,
     tagIds: [], custom: {}, lostReason: '', lostNote: ''
   };
+  base.clientStatus = p && p.client ? p.client.status : 'current';
+  base.clientSince = p && p.client ? p.client.since : '';
+  base.clientUntil = p && p.client ? p.client.until : '';
   const v = k => (saved && k in saved) ? saved[k] : base[k];
   const tagsSel = saved && saved.tagIds ? saved.tagIds : (base.tagIds || []);
   const err = k => errs[k] ? `<div class="field-error">${esc(errs[k])}</div>` : '';
@@ -193,13 +208,18 @@ function prospectForm(d, p) {
   const cfVal = id => saved && ('cf__' + id) in saved ? saved['cf__' + id] : ((base.custom || {})[id] || '');
 
   return `<form id="pform" class="pform" data-pid="${p ? p.id : ''}" novalidate>
-    <header class="dr-head form-head"><div class="dr-title"><div><h2>${isNew ? 'New prospect' : 'Edit prospect'}</h2>${isNew ? '<p>Only one of company, contact or title is required. Fill in the rest as you learn more.</p>' : ''}</div>
+    <header class="dr-head form-head"><div class="dr-title"><div><h2>${clientCreate ? 'Add a client' : isNew ? 'New prospect' : 'Edit ' + (showClient ? 'client' : 'prospect')}</h2>${clientCreate ? '<p>For clients you work with now or worked with before. They’re saved as won clients without running the new-client automations, and kept out of your acquisition stats.</p>' : isNew ? '<p>Only a job title is required. No company named in the post? Leave it blank and fill in the rest as you learn more.</p>' : ''}</div>
       <button type="button" class="icon-btn" data-act="form-cancel" aria-label="Close">${icon('x')}</button></div></header>
     <div class="dr-body form-body" data-keep-scroll="pform">
       ${UI.form && UI.form.dupes && UI.form.dupes.length ? `<div class="banner banner-warn inline">${icon('alert')}<div>This looks like ${UI.form.dupes.map(x => `<button type="button" class="link-btn" data-act="open-prospect" data-id="${x.id}">${esc(prospectName(x))}${x.title ? ' — ' + esc(x.title) : ''}</button>`).join(', ')}, which you already have. Save again to add it anyway.</div></div>` : ''}
-      <section class="form-sec"><h3>Opportunity</h3><div class="form-grid">
-        ${txt('company', 'Company / client name', { auto: isNew, ph: 'e.g. Brightside Coaching' })}
-        ${txt('title', 'Job / opportunity title', { ph: 'e.g. Executive Assistant (part-time)' })}
+      ${showClient ? `<section class="form-sec"><h3>Client</h3><div class="form-grid">
+        ${radios('clientStatus', 'Status', [{ id: 'current', label: 'Current client' }, { id: 'past', label: 'Past client' }])}
+        <label class="fld"><span>Client since</span><input class="inp" type="date" name="clientSince" value="${attr(v('clientSince') || '')}"><small>When you started working together</small></label>
+        <label class="fld"><span>Ended</span><input class="inp" type="date" name="clientUntil" value="${attr(v('clientUntil') || '')}"><small>Only for past clients</small>${err('clientUntil')}</label>
+      </div></section>` : ''}
+      <section class="form-sec"><h3>${showClient ? 'Work' : 'Opportunity'}</h3><div class="form-grid">
+        <label class="fld"><span>Company / client name</span><input class="inp" name="company" type="text" value="${attr(v('company') || '')}" placeholder="${clientCreate ? 'e.g. Brightside Coaching' : 'Optional: leave blank if the post doesn’t say'}" ${isNew ? 'autofocus' : ''}>${err('company')}</label>
+        ${txt('title', showClient ? 'Role / services you provide' : 'Job / opportunity title', { ph: showClient ? 'e.g. Executive Assistant, 20 hrs/week' : 'e.g. Executive Assistant (part-time)' })}
         ${sel('serviceId', 'Service type', d.settings.services)}
         ${sel('sourceId', 'Lead source', d.settings.sources)}
         ${txt('url', 'Opportunity link', { wide: true, type: 'url', ph: 'Paste the job post or profile URL' })}
@@ -216,7 +236,7 @@ function prospectForm(d, p) {
         ${txt('location', 'Location', { ph: 'e.g. Austin, US' })}
         ${txt('timeZone', 'Time zone', { ph: 'e.g. US Central (UTC−6)' })}
       </div></section>
-      <section class="form-sec"><h3>Pipeline</h3><div class="form-grid">
+      ${clientCreate ? '' : `<section class="form-sec"><h3>Pipeline</h3><div class="form-grid">
         ${sel('stageId', 'Pipeline stage', stageOptions(d))}
         ${txt('discoveredDate', 'Date discovered', { type: 'date' })}
         ${radios('priority', 'Priority', PRIORITIES)}
@@ -227,7 +247,7 @@ function prospectForm(d, p) {
         ${txt('proposalDate', 'Proposal date', { type: 'date' })}
         ${stageKeyNow === 'lost' || v('lostReason') ? `<label class="fld"><span>Lost reason</span><select class="inp" name="lostReason">${selectOpts(d.settings.lostReasons.map(r => ({ id: r, label: r })), v('lostReason'), 'No reason recorded')}</select></label>
           ${txt('lostNote', 'Lost note')}` : ''}
-      </div></section>
+      </div></section>`}
       <section class="form-sec"><h3>Tags</h3>
         <div class="tag-picker">${d.settings.tags.map(t => `<label class="tag-pick tone-${t.tone}"><input type="checkbox" name="tagIds" value="${t.id}" data-multi="1" ${tagsSel.indexOf(t.id) >= 0 ? 'checked' : ''}><span>${esc(t.name)}</span></label>`).join('')}</div>
         <div class="add-row compact"><input class="inp" id="form-new-tag" placeholder="Create a new tag"><button type="button" class="btn btn-sm" data-act="form-tag-add">${icon('plus')}Add</button></div>
@@ -241,7 +261,7 @@ function prospectForm(d, p) {
       ${isNew ? `<section class="form-sec"><h3>First note</h3><textarea class="inp" name="firstNote" rows="3" placeholder="Optional: why this one looks promising, who referred you, what to mention…">${esc((saved && saved.firstNote) || '')}</textarea></section>` : ''}
     </div>
     <footer class="dr-foot"><button type="button" class="btn" data-act="form-cancel">Cancel</button>
-      <button type="submit" class="btn btn-primary">${isNew ? 'Add prospect' : 'Save changes'}</button></footer>
+      <button type="submit" class="btn btn-primary">${clientCreate ? 'Add client' : isNew ? 'Add prospect' : 'Save changes'}</button></footer>
   </form>`;
 }
 
@@ -256,5 +276,8 @@ function readProspectForm(form, d) {
   out.stageId = v.stageId;
   out.followUpDate = v.followUpDate || '';
   out.firstNote = v.firstNote || '';
+  out.clientStatus = v.clientStatus || '';
+  out.clientSince = v.clientSince || '';
+  out.clientUntil = v.clientUntil || '';
   return out;
 }

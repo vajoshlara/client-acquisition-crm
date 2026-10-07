@@ -154,7 +154,8 @@ function convTable(rows, label) {
 
 VIEWS.analytics = function () {
   const d = Store.data;
-  const live = liveProspects(d);
+  const live = acqProspects(d);
+  const hist = liveProspects(d).filter(p => p.historical).length;
   const months = UI.filters.analytics.months;
   const ms = monthlySeries(d, months);
   const bySource = groupCount(live, p => p.sourceId, k => sourceName(d, k) || 'No source');
@@ -166,7 +167,7 @@ VIEWS.analytics = function () {
     return `${pageHead('Analytics', 'How your client acquisition is actually performing.')}
       ${emptyState('analytics', 'No data to analyze yet', 'Analytics are calculated from your real prospects. Add a few, move them through the pipeline, and the patterns will show up here.', `<button class="btn btn-primary" data-act="new-prospect">${icon('plus')}Add prospect</button>`)}`;
   }
-  return `${pageHead('Analytics', 'Calculated from your own CRM records, including archived ones. Trash is excluded.')}
+  return `${pageHead('Analytics', 'Calculated from your own CRM records, including archived ones. Trash is excluded.' + (hist ? ' ' + plural(hist, 'client') + ' you added with Add client ' + (hist === 1 ? 'is' : 'are') + ' left out, since ' + (hist === 1 ? 'it' : 'they') + ' didn’t come through your pipeline.' : ''))}
   <section class="panel">
     <div class="panel-head"><h2>Insights</h2></div>
     ${insightList(d)}
@@ -202,7 +203,7 @@ VIEWS.archive = function () {
     ${filterSelect('archive', 'reason', d.settings.archiveReasons.map(r => ({ id: r, label: r })), 'Any reason')}</div>` : ''}
   ${list.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Prospect</th><th>Stage when archived</th><th>Reason</th><th>Archived on</th><th>Source</th><th><span class="sr">Actions</span></th></tr></thead>
     <tbody>${list.map(p => `<tr>
-      <td class="td-name" data-act="open-prospect" data-id="${p.id}">${monogram(p)}<div><strong>${esc(prospectName(p))}</strong><span>${esc(p.title || '')}</span></div></td>
+      <td class="td-name" data-act="open-prospect" data-id="${p.id}">${monogram(p)}<div><strong>${esc(prospectName(p))}</strong><span>${esc(prospectSubtitle(p))}</span></div></td>
       <td data-label="Stage">${stagePill(d, p)}</td>
       <td data-label="Reason">${esc(p.archive ? p.archive.reason : '')}${p.archive && p.archive.note ? `<span class="tnote">${esc(p.archive.note)}</span>` : ''}</td>
       <td data-label="Archived">${esc(p.archive ? fmtStamp(p.archive.at) : '')}</td>

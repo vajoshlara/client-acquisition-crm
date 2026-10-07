@@ -54,6 +54,12 @@ If you ever need to deploy without GitHub:
   - **Lost** asks for an optional reason.
 
   Every move is written to the prospect's timeline.
+- **Board or Grid:** the switch at the top right of the Pipeline page. Grid is a table grouped by stage; change a stage from the row's dropdown.
+- **No company named?** For confidential or general applications, a job title is enough. The CRM shows "Company not disclosed".
+- **Clients:** Prospects → **Clients** lists current and past clients.
+  - **Add client** records one you already work with or worked with before, with start and end dates. It doesn't trigger automations and isn't counted in acquisition stats.
+  - Deals you win in the pipeline become current clients automatically.
+  - **Mark engagement ended** moves a client to past.
 - **Follow-ups:** shows what's overdue, due today, not scheduled, upcoming and done.
   - **Done** marks a follow-up complete and schedules the next one in one step.
   - Hot leads are listed first within each day.

@@ -71,7 +71,7 @@ VIEWS.dashboard = function () {
         ${ivs.length ? `<ul class="rows">${ivs.slice(0, 5).map(p => `
           <li class="row" data-act="open-prospect" data-id="${p.id}">
             <div class="row-date"><strong>${esc(fmtDate(p.interviewAt))}</strong><span>${esc(fmtTime(parseLocalDateTime(p.interviewAt)))}</span></div>
-            <div class="row-main"><strong>${esc(prospectName(p))}</strong><span>${esc(p.title || '')}</span></div>
+            <div class="row-main"><strong>${esc(prospectName(p))}</strong><span>${esc(prospectSubtitle(p))}</span></div>
             ${relDay(p.interviewAt) === 'Today' ? '<span class="due due-today">Today</span>' : ''}
           </li>`).join('')}</ul>` : '<p class="muted pad">No interviews scheduled. They appear here when a prospect reaches Discovery Call / Interview with a date.</p>'}
       </section>
@@ -93,7 +93,7 @@ VIEWS.dashboard = function () {
     <section class="panel">
       <div class="panel-head"><h2>All numbers</h2></div>
       <dl class="kpis">
-        ${kpi('Total prospects', m.total, 'Every prospect except those in Trash (includes archived)')}
+        ${kpi('Total prospects', m.total, 'Every opportunity you tracked, except Trash and clients you added manually')}
         ${kpi('Active opportunities', m.active, 'Not archived, not won or lost')}
         ${kpi('Applications sent', m.applications)}
         ${kpi('Replies', m.replies)}
@@ -105,6 +105,8 @@ VIEWS.dashboard = function () {
         ${kpi('Overdue follow-ups', m.followUpsOverdue)}
         ${kpi('Upcoming interviews', m.upcomingInterviews)}
         ${kpi('Overdue tasks', m.overdueTasks)}
+        ${kpi('Current clients', m.clientsCurrent, 'Won through the pipeline or added with Add client')}
+        ${kpi('Past clients', m.clientsPast)}
         ${kpi('Archived leads', m.archived)}
         ${kpi('In Trash', m.trashed)}
       </dl>
@@ -196,12 +198,14 @@ function filteredProspects(scope) {
     if (scope === 'prospects') {
       if (f.seg === 'open' && !(p.lifecycle === 'active' && isOpen(p))) return false;
       if (f.seg === 'won' && !(p.lifecycle !== 'trashed' && p.outcome === 'won')) return false;
+      if (f.seg === 'won' && f.clientStatus && ((p.client && p.client.status) || 'current') !== f.clientStatus) return false;
       if (f.seg === 'lost' && !(p.lifecycle !== 'trashed' && p.outcome === 'lost')) return false;
       if (f.seg === 'archived' && p.lifecycle !== 'archived') return false;
       if (f.seg === 'all' && p.lifecycle === 'trashed') return false;
       if (f.seg === 'active' && p.lifecycle !== 'active') return false;
     } else if (scope === 'pipeline') {
       if (p.lifecycle !== 'active') return false;
+      if (isPastClient(p)) return false;
     }
     if (f.stage && p.stageId !== f.stage) return false;
     if (f.source && p.sourceId !== f.source) return false;
@@ -235,41 +239,59 @@ VIEWS.prospects = function () {
       case 'followUp': return (nextFollowUp(p.id) || {}).dueDate || '9999';
       case 'appliedDate': return p.appliedDate || '';
       case 'source': return sourceName(d, p.sourceId);
+      case 'clientSince': return (p.client && p.client.since) || '';
       default: return p.updatedAt;
     }
   };
   list.sort((a, b) => { const x = val(a), y = val(b); return (x < y ? -1 : x > y ? 1 : 0) * dir; });
-  const segs = [['open', 'Open'], ['won', 'Won clients'], ['lost', 'Lost'], ['archived', 'Archived'], ['all', 'All']];
-  const segCount = s => { const save = f.seg; f.seg = s; const n = filteredProspects('prospects').length; f.seg = save; return n; };
+  const segs = [['open', 'Open'], ['won', 'Clients'], ['lost', 'Lost'], ['archived', 'Archived'], ['all', 'All']];
+  const clientsView = f.seg === 'won';
+  const segCount = s => { const save = [f.seg, f.clientStatus]; f.seg = s; f.clientStatus = ''; const n = filteredProspects('prospects').length; f.seg = save[0]; f.clientStatus = save[1]; return n; };
   const th = (key, label) => `<th><button class="th-sort${sortKey === key ? ' on' : ''}" data-act="sort" data-key="${key}">${label}${sortKey === key ? icon(f.dir === 'asc' ? 'up' : 'down') : ''}</button></th>`;
   const anyFilter = filtersActive('prospects', ['q', 'stage', 'source', 'service', 'priority', 'temp', 'tag', 'from', 'to']);
 
-  return `${pageHead('Prospects', 'Every opportunity you’re tracking, in one place.', `<button class="btn btn-primary" data-act="new-prospect">${icon('plus')}Add prospect</button>`)}
+  return `${pageHead(clientsView ? 'Clients' : 'Prospects', clientsView ? 'Everyone you work with now or have worked with: clients won through your pipeline and clients you added yourself.' : 'Every opportunity you’re tracking, in one place.',
+    clientsView ? `<button class="btn" data-act="new-prospect">${icon('plus')}Add prospect</button><button class="btn btn-primary" data-act="new-client">${icon('plus')}Add client</button>`
+      : `<button class="btn" data-act="new-client">${icon('plus')}Add client</button><button class="btn btn-primary" data-act="new-prospect">${icon('plus')}Add prospect</button>`)}
   <div class="segs" role="tablist">${segs.map(([k, l]) => `<button role="tab" class="seg${f.seg === k ? ' on' : ''}" aria-selected="${f.seg === k}" data-act="filter-set" data-scope="prospects" data-key="seg" data-value="${k}">${l}<span>${segCount(k)}</span></button>`).join('')}</div>
+  ${clientsView ? `<div class="chips-row" role="group" aria-label="Client status">${[['', 'All clients'], ['current', 'Current'], ['past', 'Past']].map(([k, l]) => `<button class="chip-btn${(f.clientStatus || '') === k ? ' on' : ''}" data-act="filter-set" data-scope="prospects" data-key="clientStatus" data-value="${k}">${l}</button>`).join('')}</div>` : ''}
   <div class="filters">
     <div class="finput">${icon('search')}<input id="f-prospects-q" type="search" placeholder="Filter by name, email, tag, date…" value="${attr(f.q)}" data-input="filter" data-scope="prospects" data-key="q" aria-label="Filter prospects"></div>
-    ${filterSelect('prospects', 'stage', stageOptions(d), 'Any stage')}
+    ${clientsView ? '' : filterSelect('prospects', 'stage', stageOptions(d), 'Any stage')}
     ${filterSelect('prospects', 'source', d.settings.sources, 'Any source')}
     ${filterSelect('prospects', 'service', d.settings.services, 'Any service')}
-    ${filterSelect('prospects', 'priority', PRIORITIES, 'Any priority')}
-    ${filterSelect('prospects', 'temp', TEMPS, 'Any temperature')}
+    ${clientsView ? '' : filterSelect('prospects', 'priority', PRIORITIES, 'Any priority')}
+    ${clientsView ? '' : filterSelect('prospects', 'temp', TEMPS, 'Any temperature')}
     ${filterSelect('prospects', 'tag', tagOptions(d), 'Any tag')}
-    <div class="fdate">
+    ${clientsView ? '' : `<div class="fdate">
       <select class="fsel" data-change="filter" data-scope="prospects" data-key="dateField" aria-label="Date to filter by">
         ${selectOpts([{ id: 'discoveredDate', label: 'Discovered' }, { id: 'appliedDate', label: 'Applied' }, { id: 'followUp', label: 'Follow-up' }, { id: 'proposalDate', label: 'Proposal' }], f.dateField)}
       </select>
       <input type="date" value="${attr(f.from)}" data-change="filter" data-scope="prospects" data-key="from" aria-label="From date">
       <span class="muted">to</span>
       <input type="date" value="${attr(f.to)}" data-change="filter" data-scope="prospects" data-key="to" aria-label="To date">
-    </div>
+    </div>`}
     ${anyFilter ? `<button class="btn btn-sm btn-ghost" data-act="clear-filters" data-scope="prospects">${icon('x')}Clear filters</button>` : ''}
   </div>
   ${list.length ? `<div class="table-wrap"><table class="table ptable">
-    <thead><tr>${th('name', 'Prospect')}${th('stage', 'Stage')}<th>Service</th>${th('source', 'Source')}${th('priority', 'Priority')}${th('temperature', 'Temp')}${th('followUp', 'Next follow-up')}${th('appliedDate', 'Applied')}${th('updatedAt', 'Updated')}</tr></thead>
+    <thead><tr>${clientsView ? `${th('name', 'Client')}<th>Status</th><th>Service</th>${th('source', 'Source')}${th('clientSince', 'Client since')}<th>Ended</th>${th('updatedAt', 'Updated')}`
+      : `${th('name', 'Prospect')}${th('stage', 'Stage')}<th>Service</th>${th('source', 'Source')}${th('priority', 'Priority')}${th('temperature', 'Temp')}${th('followUp', 'Next follow-up')}${th('appliedDate', 'Applied')}${th('updatedAt', 'Updated')}`}</tr></thead>
     <tbody>${list.map(p => {
       const nf = nextFollowUp(p.id);
+      if (clientsView) {
+        const c = p.client || {};
+        return `<tr data-act="open-prospect" data-id="${p.id}" tabindex="0">
+        <td class="td-name">${monogram(p)}<div><strong>${esc(prospectName(p))}</strong><span>${esc(prospectSubtitle(p))}</span></div>${p.lifecycle === 'archived' ? lifecycleBadge(p) : ''}</td>
+        <td data-label="Status">${clientBadge(p)}</td>
+        <td data-label="Service">${esc(serviceName(d, p.serviceId))}</td>
+        <td data-label="Source">${esc(sourceName(d, p.sourceId))}</td>
+        <td data-label="Client since">${c.since ? esc(fmtDate(c.since, true)) : '<span class="muted">—</span>'}</td>
+        <td data-label="Ended">${c.until ? esc(fmtDate(c.until, true)) : '<span class="muted">—</span>'}</td>
+        <td data-label="Updated" class="muted">${esc(timeAgo(p.updatedAt))}</td>
+      </tr>`;
+      }
       return `<tr data-act="open-prospect" data-id="${p.id}" tabindex="0">
-        <td class="td-name">${monogram(p)}<div><strong>${esc(prospectName(p))}</strong><span>${esc(p.title || p.contactName || '')}</span>${(p.tagIds || []).length ? `<div class="tagrow">${tagChips(d, p.tagIds, 3)}</div>` : ''}</div>${lifecycleBadge(p)}</td>
+        <td class="td-name">${monogram(p)}<div><strong>${esc(prospectName(p))}</strong><span>${esc(prospectSubtitle(p))}</span>${(p.tagIds || []).length ? `<div class="tagrow">${tagChips(d, p.tagIds, 3)}</div>` : ''}</div>${lifecycleBadge(p)}</td>
         <td data-label="Stage">${stagePill(d, p)}</td>
         <td data-label="Service">${esc(serviceName(d, p.serviceId))}</td>
         <td data-label="Source">${esc(sourceName(d, p.sourceId))}</td>
@@ -280,8 +302,9 @@ VIEWS.prospects = function () {
         <td data-label="Updated" class="muted">${esc(timeAgo(p.updatedAt))}</td>
       </tr>`;
     }).join('')}</tbody></table></div>
-    <p class="muted small table-foot">${plural(list.length, 'prospect')}${anyFilter ? ' match your filters' : ''}.</p>`
+    <p class="muted small table-foot">${plural(list.length, clientsView ? 'client' : 'prospect')}${anyFilter ? ' match your filters' : ''}.</p>`
     : (anyFilter ? emptyState('search', 'No prospects match these filters', 'Try removing a filter or searching for something shorter.', `<button class="btn" data-act="clear-filters" data-scope="prospects">Clear filters</button>`)
+      : clientsView ? emptyState('trophy', 'No clients here yet', 'Clients you win through the pipeline appear here automatically. To record a client you already work with, or worked with before, use Add client.', `<button class="btn btn-primary" data-act="new-client">${icon('plus')}Add client</button>`)
       : emptyState('prospects', f.seg === 'won' ? 'No won clients yet' : f.seg === 'lost' ? 'Nothing lost yet' : f.seg === 'archived' ? 'Nothing archived' : 'No prospects yet',
         f.seg === 'open' || f.seg === 'all' ? 'Paste in the next job post or person you want to reach out to. Everything else — follow-ups, tasks, analytics — builds from here.' : '',
         f.seg === 'open' || f.seg === 'all' ? `<button class="btn btn-primary" data-act="new-prospect">${icon('plus')}Add prospect</button>` : ''))}`;
@@ -292,9 +315,27 @@ VIEWS.pipeline = function () {
   const d = Store.data;
   const list = filteredProspects('pipeline');
   const anyFilter = filtersActive('pipeline', ['q', 'source', 'service', 'priority', 'temp', 'tag']);
+  const layout = UI.filters.pipeline.layout === 'grid' ? 'grid' : 'board';
   const pr = { high: 0, medium: 1, low: 2 };
+  const sorted = s => list.filter(p => p.stageId === s.id).sort((a, b) => pr[a.priority] - pr[b.priority] || b.updatedAt.localeCompare(a.updatedAt));
+  const toggle = `<div class="seg-toggle" role="group" aria-label="Pipeline layout">
+    <button class="${layout === 'board' ? 'on' : ''}" aria-pressed="${layout === 'board'}" data-act="filter-set" data-scope="pipeline" data-key="layout" data-value="board">${icon('pipeline')}Board</button>
+    <button class="${layout === 'grid' ? 'on' : ''}" aria-pressed="${layout === 'grid'}" data-act="filter-set" data-scope="pipeline" data-key="layout" data-value="grid">${icon('tasks')}Grid</button></div>`;
+  const filters = `<div class="filters">
+    <div class="finput">${icon('search')}<input id="f-pipeline-q" type="search" placeholder="Filter…" value="${attr(UI.filters.pipeline.q)}" data-input="filter" data-scope="pipeline" data-key="q" aria-label="Filter pipeline"></div>
+    ${filterSelect('pipeline', 'service', d.settings.services, 'Any service')}
+    ${filterSelect('pipeline', 'source', d.settings.sources, 'Any source')}
+    ${filterSelect('pipeline', 'priority', PRIORITIES, 'Any priority')}
+    ${filterSelect('pipeline', 'temp', TEMPS, 'Any temperature')}
+    ${filterSelect('pipeline', 'tag', tagOptions(d), 'Any tag')}
+    ${anyFilter ? `<button class="btn btn-sm btn-ghost" data-act="clear-filters" data-scope="pipeline">${icon('x')}Clear</button>` : ''}
+  </div>`;
+  const head = pageHead('Pipeline', layout === 'board'
+    ? 'Drag a card to move it through your process. Each move is recorded and can trigger automations.'
+    : 'Every active opportunity in one table, grouped by stage. Change a stage right from the row.', toggle);
+  if (layout === 'grid') return head + filters + pipelineGrid(d, sorted);
   const cols = d.settings.stages.map(s => {
-    const cards = list.filter(p => p.stageId === s.id).sort((a, b) => pr[a.priority] - pr[b.priority] || b.updatedAt.localeCompare(a.updatedAt));
+    const cards = sorted(s);
     return `<section class="kcol stage-${s.key || 'custom'}" data-stage="${s.id}" aria-label="${attr(s.name)}">
       <header class="kcol-head"><span class="kcol-dot"></span><h2>${esc(s.name)}</h2><span class="kcol-n">${cards.length}</span>
         <button class="icon-btn sm" data-act="new-prospect" data-stage="${s.id}" aria-label="Add prospect to ${attr(s.name)}">${icon('plus')}</button></header>
@@ -302,25 +343,60 @@ VIEWS.pipeline = function () {
         ${cards.map(p => kcard(d, p)).join('') || `<div class="kcol-empty">${s.key === 'new' ? 'New opportunities land here.' : 'Drag a card here'}</div>`}
       </div></section>`;
   }).join('');
-  return `${pageHead('Pipeline', 'Drag a card to move it through your process. Each move is recorded and can trigger automations. On a phone, open a card and change its stage.')}
-  <div class="filters">
-    <div class="finput">${icon('search')}<input id="f-pipeline-q" type="search" placeholder="Filter cards…" value="${attr(UI.filters.pipeline.q)}" data-input="filter" data-scope="pipeline" data-key="q" aria-label="Filter cards"></div>
-    ${filterSelect('pipeline', 'service', d.settings.services, 'Any service')}
-    ${filterSelect('pipeline', 'source', d.settings.sources, 'Any source')}
-    ${filterSelect('pipeline', 'priority', PRIORITIES, 'Any priority')}
-    ${filterSelect('pipeline', 'temp', TEMPS, 'Any temperature')}
-    ${filterSelect('pipeline', 'tag', tagOptions(d), 'Any tag')}
-    ${anyFilter ? `<button class="btn btn-sm btn-ghost" data-act="clear-filters" data-scope="pipeline">${icon('x')}Clear</button>` : ''}
-  </div>
-  <div class="kanban" data-keep-scroll="kanban">${cols}</div>`;
+  return head + filters + `<div class="kanban" data-keep-scroll="kanban">${cols}</div>`;
 };
+
+/** Grid layout: one table, rows grouped by stage, stage editable inline. */
+function pipelineGrid(d, sorted) {
+  const collapsed = UI.gridCollapsed || (UI.gridCollapsed = {});
+  const nextStep = p => {
+    if (stageKeyOf(d, p) === 'interview' && p.interviewAt) return `<span class="due due-info">${icon('calendar')}Interview ${esc(fmtDateTime(p.interviewAt))}</span>`;
+    const nf = nextFollowUp(p.id);
+    if (nf) return dueBadge(nf.dueDate) + `<span class="g-sub">Follow-up</span>`;
+    const t = tasksOf(p.id).filter(taskOpen).sort((a, b) => (a.dueDate || '9').localeCompare(b.dueDate || '9'))[0];
+    if (t) return dueBadge(t.dueDate) + `<span class="g-sub">${esc(t.title)}</span>`;
+    if (isClient(p)) return `<span class="muted">Client since ${esc(fmtDate((p.client || {}).since || p.wonDate))}</span>`;
+    return '<span class="muted">—</span>';
+  };
+  const inStage = p => {
+    const n = daysBetween(dateOnly(p.stageEnteredAt || p.createdAt), todayStr());
+    return n === null ? '—' : n === 0 ? 'Today' : plural(n, 'day');
+  };
+  const groups = d.settings.stages.map(s => {
+    const rows = sorted(s);
+    const open = !collapsed[s.id];
+    return `<tbody class="g-group stage-${s.key || 'custom'}">
+      <tr class="g-head"><th colspan="8">
+        <button class="g-toggle" data-act="grid-toggle" data-stage="${s.id}" aria-expanded="${open}">${icon(open ? 'down' : 'right')}<span class="kcol-dot"></span>${esc(s.name)}<span class="kcol-n">${rows.length}</span></button>
+        <button class="icon-btn sm" data-act="new-prospect" data-stage="${s.id}" aria-label="Add prospect to ${attr(s.name)}">${icon('plus')}</button>
+      </th></tr>
+      ${open ? rows.map(p => {
+        const la = lastActivity(p.id);
+        return `<tr data-act="open-prospect" data-id="${p.id}" tabindex="0" class="prio-row-${p.priority}">
+          <td class="g-name"><div class="g-name-in">${monogram(p)}<div><strong>${esc(prospectName(p))}</strong><span>${esc(prospectSubtitle(p))}</span></div></div></td>
+          <td data-label="Stage"><select class="fsel sm" data-change="drawer-stage" data-id="${p.id}" aria-label="Stage for ${attr(prospectName(p))}">${selectOpts(stageOptions(d), p.stageId)}</select></td>
+          <td data-label="Service">${esc(shortService(d, p.serviceId))}<span class="g-sub">${esc(sourceName(d, p.sourceId))}</span></td>
+          <td data-label="Priority">${prioBadge(p.priority)}</td>
+          <td data-label="Temp">${tempBadge(p.temperature)}</td>
+          <td data-label="Next step" class="g-next">${nextStep(p)}</td>
+          <td data-label="In stage" class="muted">${inStage(p)}</td>
+          <td data-label="Last activity" class="muted">${la ? esc(timeAgo(la.at)) : '—'}</td>
+        </tr>`;
+      }).join('') : ''}
+    </tbody>`;
+  }).join('');
+  if (!Object.keys(d.prospects).length) return emptyState('pipeline', 'Your pipeline is empty', 'Add the first opportunity you’re chasing and it will appear here.', `<button class="btn btn-primary" data-act="new-prospect">${icon('plus')}Add prospect</button>`);
+  return `<div class="table-wrap"><table class="table gtable">
+    <thead><tr><th>Prospect</th><th>Stage</th><th>Service · Source</th><th>Priority</th><th>Temp</th><th>Next step</th><th>In stage</th><th>Last activity</th></tr></thead>
+    ${groups}</table></div>`;
+}
 
 function kcard(d, p) {
   const nf = nextFollowUp(p.id);
   const iv = p.interviewAt && stageKeyOf(d, p) === 'interview' ? p.interviewAt : null;
   return `<article class="kcard prio-edge-${p.priority}" draggable="true" data-drag="${p.id}" data-act="open-prospect" data-id="${p.id}" tabindex="0" aria-label="${attr(prospectName(p))}">
     <div class="kcard-top"><strong>${esc(prospectName(p))}</strong>${tempBadge(p.temperature)}</div>
-    ${p.title ? `<div class="kcard-title">${esc(p.title)}</div>` : ''}
+    ${prospectSubtitle(p) ? `<div class="kcard-title${p.company ? '' : ' muted'}">${esc(prospectSubtitle(p))}</div>` : ''}
     <div class="kcard-meta"><span>${esc(shortService(d, p.serviceId))}</span>${sourceName(d, p.sourceId) ? `<span>${esc(sourceName(d, p.sourceId))}</span>` : ''}</div>
     ${(p.tagIds || []).length ? `<div class="tagrow">${tagChips(d, p.tagIds, 2)}</div>` : ''}
     <div class="kcard-foot">${prioBadge(p.priority)}

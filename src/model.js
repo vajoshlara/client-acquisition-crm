@@ -31,7 +31,7 @@ const ACTIVITY_LABELS = {
   application_submitted: 'Application submitted', email_logged: 'Email logged', message_logged: 'Message logged',
   call_logged: 'Call logged', interview_scheduled: 'Interview scheduled', interview_completed: 'Interview completed',
   proposal_sent: 'Proposal sent', follow_up_scheduled: 'Follow-up scheduled', follow_up_completed: 'Follow-up completed',
-  won: 'Won', lost: 'Lost', reopened: 'Reopened', archived: 'Archived', restored: 'Restored', deleted: 'Deleted', automation: 'Automation'
+  won: 'Won', lost: 'Lost', reopened: 'Reopened', client_added: 'Client added', client_ended: 'Engagement ended', client_resumed: 'Engagement resumed', client_updated: 'Client details updated', archived: 'Archived', restored: 'Restored', deleted: 'Deleted', automation: 'Automation'
 };
 const LOGGABLE = ['email_logged', 'message_logged', 'call_logged', 'application_submitted', 'interview_completed', 'proposal_sent'];
 const TAG_TONES = ['slate', 'blue', 'teal', 'green', 'amber', 'orange', 'rose', 'violet'];
@@ -139,6 +139,8 @@ function normalizeData(d) {
     p.milestones = p.milestones || {};
     p.lifecycle = p.lifecycle || 'active';
     p.outcome = p.outcome || 'open';
+    if (p.outcome === 'won' && !p.client) p.client = { status: 'current', since: p.wonDate || dateOnly(p.updatedAt), until: '' };
+    if (p.outcome !== 'won' && p.client) p.client = null;
   });
   return d;
 }
@@ -156,6 +158,13 @@ function sourceName(d, id) { const s = d.settings.sources.find(x => x.id === id)
 function serviceName(d, id) { const s = d.settings.services.find(x => x.id === id); return s ? s.name : ''; }
 function tagById(d, id) { return d.settings.tags.find(t => t.id === id) || null; }
 function prospectName(p) { return (p && (p.company || p.contactName || p.title)) || 'Untitled prospect'; }
+/** Second line under a prospect's name. A job post with no company named still reads clearly. */
+function prospectSubtitle(p) {
+  if (!p) return '';
+  if (p.company) return p.title || p.contactName || '';
+  if (p.contactName) return p.title || 'Company not disclosed';
+  return 'Company not disclosed';
+}
 function isOpen(p) { return p.outcome !== 'won' && p.outcome !== 'lost'; }
 function taskOpen(t) { return t.status === 'todo' || t.status === 'in_progress'; }
 
@@ -229,7 +238,7 @@ function cleanFields(f) {
 function validateProspect(f) {
   const errors = {};
   if (!String(f.company || '').trim() && !String(f.title || '').trim() && !String(f.contactName || '').trim()) {
-    errors.company = 'Add a company, contact or opportunity title so you can find this prospect later.';
+    errors.company = 'Add at least a job title (or a company or contact name) so you can find this later.';
   }
   if (f.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(f.email).trim())) errors.email = 'This email address looks incomplete.';
   return errors;
@@ -326,7 +335,7 @@ function moveStage(d, id, stageId, ctx) {
   logAct(d, id, 'stage_changed', (from ? from.name : 'No stage') + ' → ' + to.name, { fromStage: p.stageId, toStage: stageId });
   // leaving an outcome stage reopens the opportunity
   if (from && (from.key === 'won' || from.key === 'lost') && to.key !== from.key) {
-    if (from.key === 'won') { delete p.milestones.won; p.wonDate = ''; }
+    if (from.key === 'won') { delete p.milestones.won; p.wonDate = ''; p.client = null; }
     if (from.key === 'lost') { delete p.milestones.lost; p.lostDate = ''; p.lostReason = ''; p.lostNote = ''; }
     p.outcome = 'open';
     logAct(d, id, 'reopened', 'Opportunity reopened');
@@ -363,8 +372,10 @@ function enterStage(d, p, stage, ctx) {
       break;
     case 'won':
       p.outcome = 'won';
-      p.wonDate = today;
-      logAct(d, p.id, 'won', 'Client won');
+      p.wonDate = ctx.wonDate || today;
+      p.client = { status: ctx.clientStatus === 'past' ? 'past' : 'current', since: p.wonDate, until: ctx.clientStatus === 'past' ? (ctx.clientUntil || '') : '' };
+      if (ctx.existingClient) logAct(d, p.id, 'client_added', 'Added as ' + (p.client.status === 'past' ? 'a past' : 'a current') + ' client (since ' + fmtDate(p.wonDate, true) + (p.client.until ? ', ended ' + fmtDate(p.client.until, true) : '') + ')');
+      else logAct(d, p.id, 'won', 'Client won');
       break;
     case 'lost':
       p.outcome = 'lost';
@@ -375,7 +386,58 @@ function enterStage(d, p, stage, ctx) {
       break;
   }
   touch(p);
-  runTrigger(d, { type: 'stage_entered', stageKey: key, stageId: stage.id }, p, ctx);
+  if (!ctx.skipAutomations) runTrigger(d, { type: 'stage_entered', stageKey: key, stageId: stage.id }, p, ctx);
+}
+
+/* ------------------------------------------------------------ clients (won opportunities, current or past) */
+function isClient(p) { return p && p.outcome === 'won' && p.lifecycle !== 'trashed'; }
+function isPastClient(p) { return isClient(p) && p.client && p.client.status === 'past'; }
+
+/** Record a client you already have (or had) without running new-client automations.
+ *  Marked "historical": it didn't come through the pipeline, so acquisition analytics leave it out. */
+function createClient(d, fields) {
+  const since = fields.clientSince || todayStr();
+  const past = fields.clientStatus === 'past';
+  const f = Object.assign({}, fields, { stageId: stageByKey(d, 'won').id, followUpDate: '' });
+  if (!f.discoveredDate) f.discoveredDate = since;
+  const p = createProspect(d, f, { skipAutomations: true, existingClient: true, wonDate: since, clientStatus: past ? 'past' : 'current', clientUntil: past ? (fields.clientUntil || '') : '' });
+  p.historical = true;
+  p.temperature = fields.temperature || 'warm';
+  touch(p);
+  return p;
+}
+
+function updateClientDetails(d, id, c) {
+  const p = d.prospects[id];
+  if (!p || p.outcome !== 'won') return;
+  const before = JSON.stringify(p.client || {});
+  const next = Object.assign({ status: 'current', since: p.wonDate || todayStr(), until: '' }, p.client || {});
+  if (c.status) next.status = c.status === 'past' ? 'past' : 'current';
+  if (c.since) next.since = c.since;
+  if ('until' in c) next.until = next.status === 'past' ? (c.until || '') : '';
+  if (next.status === 'current') next.until = '';
+  if (JSON.stringify(next) === before) return;
+  p.client = next;
+  p.wonDate = next.since;
+  touch(p);
+  logAct(d, id, 'client_updated', 'Client details: ' + (next.status === 'past' ? 'past client' : 'current client') + ', since ' + fmtDate(next.since, true) + (next.until ? ', ended ' + fmtDate(next.until, true) : ''));
+}
+
+function setEngagement(d, id, status, date) {
+  const p = d.prospects[id];
+  if (!p || p.outcome !== 'won') return;
+  p.client = Object.assign({ since: p.wonDate || todayStr() }, p.client || {});
+  if (status === 'past') {
+    p.client.status = 'past';
+    p.client.until = date || todayStr();
+    logAct(d, id, 'client_ended', 'Engagement ended ' + fmtDate(p.client.until, true));
+    Object.values(d.tasks).filter(t => t.prospectId === id && taskOpen(t) && t.type === 'onboarding').forEach(t => setTaskStatus(d, t.id, 'cancelled'));
+  } else {
+    p.client.status = 'current';
+    p.client.until = '';
+    logAct(d, id, 'client_resumed', 'Working together again');
+  }
+  touch(p);
 }
 
 /* ------------------------------------------------------------ lifecycle: active -> archived -> trash */
@@ -642,6 +704,8 @@ function milestoneDate(p, key) {
 }
 
 function liveProspects(d) { return Object.values(d.prospects).filter(p => p.lifecycle !== 'trashed'); }
+/** Prospects that went through your acquisition process (excludes clients you added after the fact). */
+function acqProspects(d) { return liveProspects(d).filter(p => !p.historical); }
 
 function followUpBuckets(d) {
   const today = todayStr();
@@ -692,7 +756,7 @@ function upcomingInterviews(d) {
 }
 
 function computeMetrics(d) {
-  const live = liveProspects(d);
+  const live = acqProspects(d);
   const reached = lvl => live.filter(p => funnelLevel(p) >= lvl).length;
   const fu = followUpBuckets(d);
   const tb = taskBuckets(d);
@@ -706,7 +770,10 @@ function computeMetrics(d) {
     upcomingInterviews: upcomingInterviews(d).length,
     overdueTasks: tb.overdue.length, tasksToday: tb.today.length,
     archived: Object.values(d.prospects).filter(p => p.lifecycle === 'archived').length,
-    trashed: Object.values(d.prospects).filter(p => p.lifecycle === 'trashed').length
+    trashed: Object.values(d.prospects).filter(p => p.lifecycle === 'trashed').length,
+    clientsCurrent: liveProspects(d).filter(p => isClient(p) && !isPastClient(p)).length,
+    clientsPast: liveProspects(d).filter(isPastClient).length,
+    historical: liveProspects(d).filter(p => p.historical).length
   };
   m.conv = [
     { label: 'Application → Reply', n: m.replies, d: m.applications, hint: 'Replies ÷ applications' },
@@ -725,7 +792,7 @@ function groupCount(list, keyFn, names) {
 }
 
 function conversionBy(d, field) {
-  const live = liveProspects(d);
+  const live = acqProspects(d);
   const list = field === 'sourceId' ? d.settings.sources : d.settings.services;
   const rows = list.map(item => {
     const ps = live.filter(p => p[field] === item.id);
@@ -750,7 +817,7 @@ function monthKeysBack(n) {
 }
 function monthlySeries(d, months) {
   const keys = monthKeysBack(months);
-  const live = liveProspects(d);
+  const live = acqProspects(d);
   const series = {};
   FUNNEL.forEach(f => {
     const counts = {};
@@ -762,7 +829,7 @@ function monthlySeries(d, months) {
 }
 
 function insights(d) {
-  const live = liveProspects(d);
+  const live = acqProspects(d);
   const out = [];
   if (live.length < 3) {
     return [{ tone: 'neutral', text: 'Add a few more prospects and this space will tell you which sources and services are working for you.' }];
