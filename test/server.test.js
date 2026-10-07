@@ -21,6 +21,12 @@ function makeData(n, tag) {
   for (let i = 0; i < n; i++) prospects['p_' + i] = { id: 'p_' + i, company: 'Co ' + i + (tag || ''), lifecycle: 'active' };
   return { schema: 1, prospects, tasks: {}, notes: {}, activities: {}, jobs: {}, tombstones: {} };
 }
+function liveSetupFiles(env) { return Object.values(env._files).filter(f => !f.trashed && f.name === 'CRM passcode setup code.txt').length; }
+function setupCodeIn(env) {
+  const f = Object.values(env._files).find(f => !f.trashed && f.name === 'CRM passcode setup code.txt');
+  const m = f && f.content.match(/\b([A-Z2-9]{4}-[A-Z2-9]{4})\b/);
+  return m ? m[1] : null;
+}
 let saveCounter = 0;
 function save(ctx, baseSeq, data, extra) {
   const dataJson = JSON.stringify(data);
@@ -282,12 +288,55 @@ function save(ctx, baseSeq, data, extra) {
   env._props.CRM_DEVICE_TOKENS = JSON.stringify(rec);
   ok(ctx.api_head({ token: changed.token }).code === 'LOCKED', 'expired token refused');
 
-  // forgot passcode: editor opens a 15-minute reset window
-  ok(/15 minutes/.test(ctx.allowPasscodeReset()), 'reset helper runs');
-  ok(ctx.api_bootstrap({ timeZone: 'Asia/Manila' }).code === 'SETUP', 'during reset the app asks for a new passcode');
-  const reset = ctx.api_setPasscode({ newPasscode: 'Fresh-Start-1' });
-  ok(reset.ok && ctx.api_head({ token: reset.token }).ok, 'new passcode set during reset window (no sign-in needed)');
-  ok(ctx.api_setPasscode({ newPasscode: 'Another-1' }).code === 'LOCKED', 'reset window closes after use');
+  // forgot passcode: a setup code in Drive lets you choose a new one without signing in
+  const fresh = ctx.api_setPasscode({ newPasscode: 'Fresh-Start-1' });
+  ok(fresh.code === 'LOCKED', 'a new passcode without a code, token or current passcode is refused');
+  ok(/setup code was saved/.test(ctx.allowPasscodeReset()), 'editor reset helper writes a setup code');
+  const code1 = setupCodeIn(env);
+  ok(code1 && /^[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(code1), 'setup code file in the CRM folder');
+  ok(ctx.api_bootstrap({ timeZone: 'Asia/Manila' }).code === 'LOCKED', 'a pending code does not open the CRM');
+  const reset = ctx.api_setPasscode({ newPasscode: 'Fresh-Start-1', setupCode: code1.toLowerCase().replace('-', ' ') });
+  ok(reset.ok && ctx.api_head({ token: reset.token }).ok, 'new passcode set with the setup code (spaces/case ignored)');
+  ok(setupCodeIn(env) === null, 'setup code file trashed after use');
+  ok(ctx.api_setPasscode({ newPasscode: 'Another-1', setupCode: code1 }).code === 'WRONG_CODE', 'setup code works only once');
+  ok(ctx.api_unlock({ passcode: 'Fresh-Start-1' }).ok, 'reset passcode unlocks');
+}
+
+// 17. First passcode from a phone (public link, nobody signed in), via a setup code in Drive
+{
+  const { env, ctx } = boot();
+  save(ctx, 0, makeData(3));
+  env._setActiveUser('');
+  ok(ctx.api_bootstrap({ timeZone: 'Asia/Manila' }).code === 'LOCKED', 'anonymous visitor locked before any passcode');
+  ok(ctx.api_setPasscode({ newPasscode: 'Phone-Setup-1' }).code === 'OWNER_ONLY', 'no code -> refused');
+  ok(ctx.api_setPasscode({ newPasscode: 'Phone-Setup-1', setupCode: 'AAAA-AAAA' }).code === 'WRONG_CODE', 'made-up code refused before any code exists');
+  const req = ctx.api_requestSetupCode({});
+  ok(req.ok && !req.reused && req.folderName === '08_Claude CRM Project' && !JSON.stringify(req).match(/[A-Z2-9]{4}-[A-Z2-9]{4}/), 'code request answers without revealing the code');
+  const c1 = setupCodeIn(env);
+  ok(!!c1 && !JSON.stringify(env._props).includes(c1.replace('-', '')), 'code is only stored as a hash');
+  const again = ctx.api_requestSetupCode({});
+  ok(again.reused && setupCodeIn(env) === c1 && liveSetupFiles(env) === 1, 'asking again keeps the same code and file');
+  ok(ctx.api_listStates({}).code === 'LOCKED', 'still locked while a code is pending');
+  ok(ctx.api_setPasscode({ newPasscode: '123', setupCode: c1 }).code === 'WEAK_PASSCODE', 'weak passcode refused, code not used up');
+  const w = ctx.api_setPasscode({ newPasscode: 'Phone-Setup-1', setupCode: 'ZZZZ-ZZZZ' });
+  ok(w.code === 'WRONG_CODE' && /attempts left/.test(w.message), 'wrong code counted toward the pause');
+  // expired code
+  env._props.CRM_SETUP_CODE_UNTIL = String(Date.now() - 1);
+  ok(ctx.api_setPasscode({ newPasscode: 'Phone-Setup-1', setupCode: c1 }).code === 'WRONG_CODE', 'expired code refused');
+  const r2 = ctx.api_requestSetupCode({});
+  const c2 = setupCodeIn(env);
+  ok(r2.ok && !r2.reused && c2 && liveSetupFiles(env) === 1, 'expired code replaced, old file trashed');
+  const set = ctx.api_setPasscode({ newPasscode: 'Phone-Setup-1', setupCode: c2, label: 'phone' });
+  ok(set.ok && ctx.api_bootstrap({ timeZone: 'Asia/Manila', token: set.token }).ok, 'phone sets the first passcode and opens the CRM');
+  ok(ctx.api_bootstrap({ timeZone: 'Asia/Manila', token: set.token }).latest.meta.counts.prospects === 3, 'existing data intact');
+  ok(liveSetupFiles(env) === 0, 'no setup file left behind');
+  ok(env._committed().length === 1, 'setup files never counted as CRM states');
+  // brute force on codes is throttled like passcodes
+  ctx.api_requestSetupCode({});
+  let last;
+  for (let i = 0; i < 8; i++) last = ctx.api_setPasscode({ newPasscode: 'Attacker-1', setupCode: 'BBBB-BBB' + i });
+  ok(last.code === 'RATE_LIMITED', 'code guessing paused after 8 tries');
+  ok(ctx.api_setPasscode({ newPasscode: 'Attacker-1', setupCode: setupCodeIn(env) }).code === 'RATE_LIMITED', 'even the right code waits during the pause');
 }
 
 console.log(`server tests: ${pass} passed, ${failN} failed`);

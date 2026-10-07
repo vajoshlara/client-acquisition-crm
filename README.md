@@ -82,10 +82,12 @@ The CRM link can be opened on any device, with no Google sign-in. A passcode kee
 - **New devices** ask for the passcode once and then stay unlocked for 90 days.
 - **Settings → Passcode & devices** lets you change the passcode, sign out other devices, or lock the current device.
 - **The server checks it.** Without the passcode, the server refuses to send or change any data, even to someone who has the link. After 8 wrong tries it pauses for 15 minutes.
-- **Forgot it?**
-  1. Open the Apps Script project (Drive → 07_Google App Script → Client Acquisition CRM).
-  2. Choose the function **allowPasscodeReset** in the toolbar and click **Run**.
-  3. Within 15 minutes, open the CRM link and choose a new passcode.
+- **First time, or forgot it?** On the lock screen tap **Forgot passcode?** (or **Get a setup code** the first time).
+  1. The CRM saves a one-time code as **CRM passcode setup code** in your Drive folder **08_Claude CRM Project**.
+  2. Open that file in the Google Drive app (or drive.google.com) and type the code on the CRM screen within 30 minutes.
+  3. Choose your new passcode. The code works once, and the file moves to the trash by itself.
+
+  Only someone who can open your Google Drive can read the code, so the link alone is never enough.
 
 ## Things to know
 

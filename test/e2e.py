@@ -515,6 +515,26 @@ with sync_playwright() as p:
     pg.fill('#lock-pass', 'New-Pass-2026'); pg.click('#lock-form button[type=submit]')
     pg.wait_for_selector('.shell', timeout=15000)
     check(wait_synced(pg, 15), 'new passcode unlocks')
+
+    # forgot passcode on the phone (not signed in): setup code from the Drive folder
+    pg.click('[data-act=passcode-lock]'); pg.wait_for_selector('#lock-form')
+    pg.click('[data-act=lock-forgot]'); pg.wait_for_selector('[data-act=lock-get-code]')
+    check('08_Claude CRM Project' in pg.inner_text('#lock-screen'), 'reset screen names the Drive folder')
+    pg.click('#lock-screen .btn-primary[data-act=lock-get-code]'); pg.wait_for_selector('#lock-code', timeout=10000)
+    check('CRM passcode setup code' in pg.inner_text('#lock-screen'), 'tells you which file to open')
+    pg.screenshot(path=SHOTS + '12_setup_code.png')
+    code = js(pg, """(() => { const f = Object.values(__env._files).find(f => !f.trashed && f.name === 'CRM passcode setup code.txt');
+      return f ? f.content.match(/[A-Z2-9]{4}-[A-Z2-9]{4}/)[0] : null; })()""")
+    check(bool(code) and code not in pg.content(), 'code saved in Drive, never shown in the app')
+    pg.fill('#lock-code', 'WRNG-CODE'); pg.fill('#lock-pass', 'Phone-Reset-9'); pg.fill('#lock-pass2', 'Phone-Reset-9')
+    pg.click('#lock-form button[type=submit]')
+    pg.wait_for_function("document.getElementById('lock-msg') && document.getElementById('lock-msg').textContent.length > 0")
+    check('wrong or has expired' in pg.inner_text('#lock-msg'), 'wrong setup code explained')
+    pg.fill('#lock-code', code.lower()); pg.click('#lock-form button[type=submit]')
+    pg.wait_for_selector('.shell', timeout=15000)
+    check(wait_synced(pg, 15) and js(pg, "Object.keys(CRM.Store.data.prospects).length") >= count_before, 'new passcode set from the phone, data intact')
+    check(js(pg, "__api.api_unlock({passcode: 'Phone-Reset-9'}).ok") and js(pg, "__api.api_unlock({passcode: 'New-Pass-2026'}).code") == 'WRONG_PASSCODE', 'reset passcode replaces the old one')
+    check(js(pg, "Object.values(__env._files).filter(f => !f.trashed && f.name === 'CRM passcode setup code.txt').length") == 0, 'setup code file trashed after use')
     js(pg, "__env._setActiveUser('vajoshlara@gmail.com')")
 
     # ---------- local-only mode (opened as a plain file)

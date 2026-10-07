@@ -530,19 +530,22 @@ ACTIONS['restore-state'] = async el => {
 async function submitLockForm(form) {
   const msg = document.getElementById('lock-msg');
   const btn = form.querySelector('button[type=submit]');
+  const codeEl = form.querySelector('#lock-code');
   const pass = form.querySelector('#lock-pass').value;
   const confirm2 = form.querySelector('#lock-pass2');
-  if (!pass) { msg.textContent = 'Enter your passcode.'; return; }
+  if (codeEl && !codeEl.value.trim()) { msg.textContent = 'Enter the setup code from your Drive folder.'; return; }
+  if (!pass) { msg.textContent = codeEl ? 'Choose a passcode.' : 'Enter your passcode.'; return; }
+  if (codeEl && pass.length < 6) { msg.textContent = 'Use at least 6 characters.'; return; }
   if (confirm2 && confirm2.value !== pass) { msg.textContent = 'The two passcodes don’t match.'; return; }
   btn.disabled = true;
   msg.textContent = '';
   try {
-    const r = Sync.locked && Sync.locked.setup ? await Sync.setPasscode(pass) : await Sync.unlock(pass);
+    const r = codeEl ? await Sync.setPasscode(pass, '', codeEl.value) : await Sync.unlock(pass);
     if (!r.ok) {
       msg.textContent = r.message || 'That didn’t work. Try again.';
       btn.disabled = false;
-      const inp = form.querySelector('#lock-pass');
-      inp.value = '';
+      const inp = form.querySelector(codeEl && r.code === 'WRONG_CODE' ? '#lock-code' : '#lock-pass');
+      if (!codeEl) inp.value = '';
       inp.focus();
     }
   } catch (e) {
@@ -550,6 +553,9 @@ async function submitLockForm(form) {
     btn.disabled = false;
   }
 }
+ACTIONS['lock-forgot'] = () => Sync.lockMode('setup');
+ACTIONS['lock-back'] = () => Sync.lockMode('unlock');
+ACTIONS['lock-get-code'] = () => Sync.requestSetupCode();
 ACTIONS['passcode-save'] = async el => {
   const msg = document.getElementById('pc-msg');
   const cur = document.getElementById('pc-current');

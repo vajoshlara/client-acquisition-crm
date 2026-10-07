@@ -12,7 +12,7 @@ inject = """<script>
   window.__env = env;
   window.__net = { offline: localStorage.getItem('__offline') === '1', latency: 60 };
   var names = Object.keys(env).filter(function (k) { return k.charAt(0) !== '_'; });
-  var api = new Function(names.join(','), """ + repr(code) + """ + '\\n;return { api_bootstrap: api_bootstrap, api_save: api_save, api_head: api_head, api_listStates: api_listStates, api_getState: api_getState, api_unlock: api_unlock, api_setPasscode: api_setPasscode, api_signOutOthers: api_signOutOthers, api_authStatus: api_authStatus, allowPasscodeReset: allowPasscodeReset };')
+  var api = new Function(names.join(','), """ + repr(code) + """ + '\\n;return { api_bootstrap: api_bootstrap, api_save: api_save, api_head: api_head, api_listStates: api_listStates, api_getState: api_getState, api_unlock: api_unlock, api_setPasscode: api_setPasscode, api_signOutOthers: api_signOutOthers, api_authStatus: api_authStatus, api_requestSetupCode: api_requestSetupCode, allowPasscodeReset: allowPasscodeReset };')
     .apply(null, names.map(function (k) { return env[k]; }));
   window.__api = api;
   window.__calls = [];

@@ -248,15 +248,22 @@ function api_save(req) {
  * token is issued only after the correct passcode. Only a hash of the passcode
  * and of each token is stored (Script Properties).
  *
- *  - Before a passcode exists, only the owner (signed in) gets in, and only the
- *    owner can set the first passcode. Set it while the deployment is private.
- *  - Wrong passcodes are limited: after MAX_FAILS the lock holds for LOCK_SECONDS.
- *  - Forgot it? In the Apps Script editor run allowPasscodeReset(); for the next
- *    15 minutes the app lets you choose a new passcode.
+ *  - Before a passcode exists, only the owner (signed in) gets in.
+ *  - Setting the first passcode, or a new one after forgetting it, needs either
+ *    the owner signed in, or a one-time SETUP CODE. The app asks the server to
+ *    write that code into a text file in the CRM's Drive folder, so only someone
+ *    who can open the owner's Google Drive can read it (e.g. the Drive app on a
+ *    phone). The code expires after SETUP_MINUTES and the file is trashed once used.
+ *  - Wrong passcodes and wrong setup codes are limited: after MAX_FAILS the lock
+ *    holds for LOCK_SECONDS.
  */
 var AUTH = {
   PROP_HASH: 'CRM_PASSCODE_HASH', PROP_SALT: 'CRM_PASSCODE_SALT', PROP_TOKENS: 'CRM_DEVICE_TOKENS',
-  PROP_SETUP_UNTIL: 'CRM_PASSCODE_SETUP_UNTIL',
+  PROP_SETUP_UNTIL: 'CRM_PASSCODE_SETUP_UNTIL',   // old 15-minute reset window (no longer used; cleared)
+  PROP_CODE_HASH: 'CRM_SETUP_CODE_HASH', PROP_CODE_UNTIL: 'CRM_SETUP_CODE_UNTIL',
+  PROP_CODE_MADE: 'CRM_SETUP_CODE_MADE', PROP_CODE_FILE: 'CRM_SETUP_CODE_FILE',
+  SETUP_FILE: 'CRM passcode setup code.txt', SETUP_MINUTES: 30, SETUP_REUSE_MIN_LEFT: 10,
+  CODE_CHARS: 'ABCDEFGHJKMNPQRSTUVWXYZ23456789',
   TOKEN_DAYS: 90, MAX_TOKENS: 12, MAX_FAILS: 8, LOCK_SECONDS: 900, ITER: 400, MIN_LEN: 6, MAX_LEN: 64
 };
 
@@ -285,13 +292,20 @@ function api_setPasscode(req) {
     }
     var props = PropertiesService.getScriptProperties();
     var exists = !!props.getProperty(AUTH.PROP_HASH);
-    if (exists && !setupWindowOpen_()) {
+    var setupCode = String((req && req.setupCode) || '');
+    var viaCode = false;
+    if (setupCode) {
+      var limitedC = rateLimited_();
+      if (limitedC) return limitedC;
+      if (!checkSetupCode_(setupCode)) return recordFailure_('WRONG_CODE', 'That setup code is wrong or has expired.');
+      viaCode = true;
+    } else if (exists) {
       if (!tokenValid_(req && req.token)) return fail_('LOCKED', 'Unlock the CRM first.', false);
       var limited = rateLimited_();
       if (limited) return limited;
       if (!checkPasscode_(String((req && req.currentPasscode) || ''))) return recordFailure_();
-    } else if (!exists && !isOwner_() && !setupWindowOpen_()) {
-      return fail_('OWNER_ONLY', 'The first passcode can only be set by the owner while signed in.', false);
+    } else if (!isOwner_()) {
+      return fail_('OWNER_ONLY', 'Get a setup code first: it is saved in your Google Drive folder.', false);
     }
     var salt = Utilities.getUuid();
     props.setProperty(AUTH.PROP_SALT, salt);
@@ -299,6 +313,7 @@ function api_setPasscode(req) {
     props.deleteProperty(AUTH.PROP_SETUP_UNTIL);
     props.setProperty(AUTH.PROP_TOKENS, '{}');           // every other device must unlock again
     clearFailures_();
+    if (viaCode) clearSetupCode_();
     return { ok: true, token: issueToken_(req && req.label), days: AUTH.TOKEN_DAYS };
   });
 }
@@ -315,14 +330,84 @@ function api_signOutOthers(req) {
   });
 }
 
-/** Run this from the Apps Script editor if you forget your passcode. */
+/**
+ * Writes a one-time setup code into the CRM's Drive folder. Anyone can ask for
+ * one (the lock screen does), but only someone who can open your Google Drive
+ * can read it. While a code has 10+ minutes left, asking again keeps the same code.
+ */
+function api_requestSetupCode(req) {
+  return run_(function () {
+    var r = makeSetupCode_(false);
+    return { ok: true, fileName: AUTH.SETUP_FILE, folderName: r.folderName, minutes: AUTH.SETUP_MINUTES, reused: r.reused };
+  });
+}
+
+/** Forgot your passcode? Run this from the Apps Script editor, or tap "Forgot passcode?" in the app. */
 function allowPasscodeReset() {
-  PropertiesService.getScriptProperties().setProperty(AUTH.PROP_SETUP_UNTIL, String(new Date().getTime() + 15 * 60 * 1000));
-  return 'For the next 15 minutes, open the CRM and choose a new passcode.';
+  var r = makeSetupCode_(true);
+  return 'A setup code was saved as "' + AUTH.SETUP_FILE + '" in ' + r.folderName + '. Open the CRM, tap "Forgot passcode?" and enter it within ' + AUTH.SETUP_MINUTES + ' minutes.';
+}
+
+function makeSetupCode_(force) {
+  var props = PropertiesService.getScriptProperties();
+  var now = new Date().getTime();
+  var folder = crmFolder_();
+  var until = Number(props.getProperty(AUTH.PROP_CODE_UNTIL) || 0);
+  var fileId = props.getProperty(AUTH.PROP_CODE_FILE);
+  // Keep the code you may already be reading, unless it is about to expire or its file is gone.
+  if (!force && until - now > AUTH.SETUP_REUSE_MIN_LEFT * 60000 && fileId && setupFileAlive_(fileId)) {
+    return { reused: true, folderName: folder.getName() };
+  }
+  var raw = sha256Hex_(Utilities.getUuid() + Utilities.getUuid() + now);
+  var code = '';
+  for (var i = 0; i < 8; i++) code += AUTH.CODE_CHARS.charAt(parseInt(raw.substr(i * 4, 4), 16) % AUTH.CODE_CHARS.length);
+  var pretty = code.slice(0, 4) + '-' + code.slice(4);
+  var expires = now + AUTH.SETUP_MINUTES * 60000;
+  var tz = Session.getScriptTimeZone() || 'Etc/UTC';
+  var text = 'Client Acquisition CRM: passcode setup code\n\n' +
+    '    ' + pretty + '\n\n' +
+    'Enter this code on the CRM screen to choose a passcode.\n' +
+    'It works once and expires at ' + Utilities.formatDate(new Date(expires), tz, 'yyyy-MM-dd HH:mm') + ' (' + tz + ').\n' +
+    'This file moves to the trash automatically once the code is used.\n\n' +
+    'Did not ask for this? You can ignore it: nobody can use the code without access to your Google Drive.\n';
+  var file = folder.createFile(AUTH.SETUP_FILE, text, 'text/plain');
+  if (fileId) trashQuietly_(fileId);
+  props.setProperty(AUTH.PROP_CODE_HASH, sha256Hex_('setup|' + code));
+  props.setProperty(AUTH.PROP_CODE_UNTIL, String(expires));
+  props.setProperty(AUTH.PROP_CODE_MADE, String(now));
+  props.setProperty(AUTH.PROP_CODE_FILE, file.getId());
+  return { reused: false, folderName: folder.getName() };
+}
+
+function normalizeCode_(c) { return String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+
+function checkSetupCode_(code) {
+  var props = PropertiesService.getScriptProperties();
+  var stored = props.getProperty(AUTH.PROP_CODE_HASH);
+  var until = Number(props.getProperty(AUTH.PROP_CODE_UNTIL) || 0);
+  if (!stored || until <= new Date().getTime()) return false;
+  var got = sha256Hex_('setup|' + normalizeCode_(code));
+  var diff = got.length ^ stored.length;
+  for (var i = 0; i < Math.min(got.length, stored.length); i++) diff |= got.charCodeAt(i) ^ stored.charCodeAt(i);
+  return diff === 0;
+}
+
+function clearSetupCode_() {
+  var props = PropertiesService.getScriptProperties();
+  var fileId = props.getProperty(AUTH.PROP_CODE_FILE);
+  [AUTH.PROP_CODE_HASH, AUTH.PROP_CODE_UNTIL, AUTH.PROP_CODE_MADE, AUTH.PROP_CODE_FILE].forEach(function (k) { props.deleteProperty(k); });
+  if (fileId) trashQuietly_(fileId);
+}
+
+function setupFileAlive_(id) {
+  try { return !DriveApp.getFileById(id).isTrashed(); } catch (e) { return false; }
+}
+
+function trashQuietly_(id) {
+  try { DriveApp.getFileById(id).setTrashed(true); } catch (e) { /* already gone */ }
 }
 
 function authorize_(req) {
-  if (setupWindowOpen_()) return fail_('SETUP', 'Choose a new passcode to continue.', false, { setup: true });
   if (PropertiesService.getScriptProperties().getProperty(AUTH.PROP_HASH)) {
     if (tokenValid_(req && req.token)) return null;
     return fail_('LOCKED', 'Enter your passcode to open the CRM.', false, { passcodeSet: true });
@@ -336,8 +421,7 @@ function authStatus_(req) {
   return {
     passcodeSet: set,
     unlocked: set ? tokenValid_(req && req.token) : isOwner_(),
-    canSetPasscode: (!set && isOwner_()) || setupWindowOpen_(),
-    setup: setupWindowOpen_(),
+    canSetPasscode: !set && isOwner_(),
     devices: set ? Object.keys(tokens_()).length : 0
   };
 }
@@ -350,11 +434,6 @@ function isOwner_() {
     var e = Session.getEffectiveUser().getEmail();
     return !!a && a === e;
   } catch (err) { return false; }
-}
-
-function setupWindowOpen_() {
-  var until = Number(PropertiesService.getScriptProperties().getProperty(AUTH.PROP_SETUP_UNTIL) || 0);
-  return until > new Date().getTime();
 }
 
 function hashPasscode_(pass, salt) {
@@ -418,7 +497,7 @@ function rateLimited_() {
   return null;
 }
 
-function recordFailure_() {
+function recordFailure_(code, prefix) {
   var cache = CacheService.getScriptCache();
   var fails = Number(cache.get('crm_fails') || 0) + 1;
   if (fails >= AUTH.MAX_FAILS) {
@@ -427,7 +506,7 @@ function recordFailure_() {
     return fail_('RATE_LIMITED', 'Too many wrong passcodes. Try again in ' + Math.round(AUTH.LOCK_SECONDS / 60) + ' minutes.', false);
   }
   cache.put('crm_fails', String(fails), 3600);
-  return fail_('WRONG_PASSCODE', 'That passcode isn’t right. ' + (AUTH.MAX_FAILS - fails) + ' attempt' + (AUTH.MAX_FAILS - fails === 1 ? '' : 's') + ' left before a ' + Math.round(AUTH.LOCK_SECONDS / 60) + '-minute pause.', false);
+  return fail_(code || 'WRONG_PASSCODE', (prefix ? prefix + ' ' : 'That passcode isn’t right. ') + (AUTH.MAX_FAILS - fails) + ' attempt' + (AUTH.MAX_FAILS - fails === 1 ? '' : 's') + ' left before a ' + Math.round(AUTH.LOCK_SECONDS / 60) + '-minute pause.', false);
 }
 
 function clearFailures_() {

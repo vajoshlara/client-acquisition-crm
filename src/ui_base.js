@@ -61,16 +61,16 @@ const UI = {
     if (Sync.locked) {
       document.getElementById('drawer-root').innerHTML = '';
       document.body.classList.remove('drawer-open');
-      if (!root.querySelector('#lock-form') || root.dataset.lock !== JSON.stringify(Sync.locked)) {
+      if (!root.querySelector('#lock-screen') || root.dataset.lock !== JSON.stringify(Sync.locked)) {
         root.innerHTML = lockScreen();
         root.dataset.lock = JSON.stringify(Sync.locked);
-        const inp = document.getElementById('lock-pass');
+        const inp = document.getElementById('lock-code') || document.getElementById('lock-pass');
         if (inp) setTimeout(() => inp.focus(), 30);
       }
       return;
     }
     root.dataset.lock = '';
-    if (root.querySelector('#lock-form')) root.innerHTML = '';
+    if (root.querySelector('#lock-screen')) root.innerHTML = '';
     if (!Store.data) { root.innerHTML = bootScreen(); return; }
     buildIndex(Store.data, Store.version);
     // keep focus, caret and scroll positions across re-renders
@@ -249,21 +249,50 @@ function bannerHtml() {
 
 function lockScreen() {
   const L = Sync.locked || {};
-  const setup = L.setup;
-  const canEnter = L.passcodeSet || setup;
-  return `<div class="boot lock">
-    <div class="brand-mark big" aria-hidden="true"><span></span><span></span><span></span></div>
-    <h1>${setup ? 'Choose a new passcode' : canEnter ? 'Enter your passcode' : 'This CRM is locked'}</h1>
-    <p>${setup ? 'A passcode reset was started from the Apps Script editor. Choose a new passcode of at least 6 characters.'
-      : canEnter ? 'Client Acquisition CRM. This device stays unlocked for 90 days.'
-      : 'Open the CRM on a computer signed in to your Google account, then set a passcode in Settings → Passcode & devices.'}</p>
-    ${canEnter ? `<form id="lock-form" class="lock-form" autocomplete="on" novalidate>
+  const mark = '<div class="brand-mark big" aria-hidden="true"><span></span><span></span><span></span></div>';
+  const busy = L.busy ? ' disabled' : '';
+  if (L.mode !== 'setup') {
+    return `<div class="boot lock" id="lock-screen">${mark}
+    <h1>Enter your passcode</h1>
+    <p>Client Acquisition CRM. This device stays unlocked for 90 days.</p>
+    <form id="lock-form" class="lock-form" autocomplete="on" novalidate>
       <label class="sr" for="lock-pass">Passcode</label>
-      <input id="lock-pass" class="inp" type="password" name="passcode" autocomplete="${setup ? 'new-password' : 'current-password'}" placeholder="${setup ? 'New passcode' : 'Passcode'}" required>
-      ${setup ? '<label class="sr" for="lock-pass2">Confirm passcode</label><input id="lock-pass2" class="inp" type="password" name="confirm" autocomplete="new-password" placeholder="Type it again">' : ''}
-      <button class="btn btn-primary" type="submit">${setup ? 'Save passcode' : 'Unlock'}</button>
+      <input id="lock-pass" class="inp" type="password" name="passcode" autocomplete="current-password" placeholder="Passcode" required>
+      <button class="btn btn-primary" type="submit">Unlock</button>
       <div id="lock-msg" class="field-error" role="alert"></div>
-    </form>` : ''}
+    </form>
+    <button class="btn btn-ghost btn-sm" data-act="lock-forgot">Forgot passcode?</button>
+  </div>`;
+  }
+  const reset = L.passcodeSet;
+  const folder = esc(L.folderName || '08_Claude CRM Project');
+  const back = reset ? '<button class="btn btn-ghost btn-sm" data-act="lock-back">Back to unlock</button>' : '';
+  if (!L.codeSent) {
+    return `<div class="boot lock" id="lock-screen">${mark}
+    <h1>${reset ? 'Reset your passcode' : 'Set up your passcode'}</h1>
+    <p>To prove it’s you, the CRM saves a one-time <strong>setup code</strong> in your Google Drive folder <strong>${folder}</strong>. Only someone who can open your Google Drive can read it.</p>
+    <div class="lock-form">
+      <button class="btn btn-primary" data-act="lock-get-code"${busy}>${L.busy ? 'Saving the code…' : 'Get a setup code'}</button>
+      <div id="lock-msg" class="field-error" role="alert">${esc(L.error || '')}</div>
+    </div>
+    ${back}
+  </div>`;
+  }
+  return `<div class="boot lock" id="lock-screen">${mark}
+    <h1>${reset ? 'Choose a new passcode' : 'Choose your passcode'}</h1>
+    <p>Open the <strong>Google Drive</strong> app, go to <strong>${folder}</strong> and open <strong>CRM passcode setup code</strong>. Type the code here within ${L.minutes || 30} minutes, then choose a passcode of at least 6 characters.</p>
+    <form id="lock-form" class="lock-form" autocomplete="on" novalidate>
+      <label class="sr" for="lock-code">Setup code</label>
+      <input id="lock-code" class="inp" type="text" name="setupCode" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="Setup code (e.g. ABCD-EFGH)" required>
+      <label class="sr" for="lock-pass">New passcode</label>
+      <input id="lock-pass" class="inp" type="password" name="passcode" autocomplete="new-password" placeholder="New passcode" required>
+      <label class="sr" for="lock-pass2">Confirm passcode</label>
+      <input id="lock-pass2" class="inp" type="password" name="confirm" autocomplete="new-password" placeholder="Type it again">
+      <button class="btn btn-primary" type="submit">Save passcode</button>
+      <div id="lock-msg" class="field-error" role="alert"></div>
+    </form>
+    <button class="btn btn-ghost btn-sm" data-act="lock-get-code">Can’t find it? Save the code again</button>
+    ${back}
   </div>`;
 }
 

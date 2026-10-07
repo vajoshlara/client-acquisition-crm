@@ -84,7 +84,7 @@ SETTINGS.security = function () {
         <label class="fld"><span>Type it again</span><input class="inp" id="pc-confirm" type="password" autocomplete="new-password"></label>
       </div>
       <div class="pad"><button class="btn btn-primary" data-act="passcode-save">Set passcode</button> <span id="pc-msg" class="field-error" role="alert"></span></div>
-      <p class="pad muted small">Pick something you’ll remember but others won’t guess, like a short phrase. Forgot it later? The setup guide explains how to reset it from the Apps Script editor.</p>`
+      <p class="pad muted small">Pick something you’ll remember but others won’t guess, like a short phrase. Forgot it later? Tap <strong>Forgot passcode?</strong> on the lock screen: a one-time code is saved in your Drive folder so you can choose a new one.</p>`
       : '<p class="pad muted">Open the CRM on a computer while signed in to your Google account to set the first passcode.</p>'}
     </section>`;
   }

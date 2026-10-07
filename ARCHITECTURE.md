@@ -162,16 +162,16 @@ Built-in stage side effects:
 - **Storage.** Only a salted, iterated SHA-256 hash of the passcode is kept in Script Properties.
 - **Device tokens.** A correct passcode gets a random device token, valid for 90 days. Only the token's hash is stored, and at most 12 devices are kept.
 - **Checks.** Every data call (bootstrap, head, list, get, save) checks the token on the server.
-- **First passcode.** Before a passcode exists, only the signed-in owner gets in, and only the owner can set the first passcode. That's why the first passcode is set while the deployment is still private.
+- **First passcode and resets.** Before a passcode exists, only the signed-in owner gets in. Setting the first passcode, or a new one after forgetting it, needs the owner signed in or a one-time **setup code**. The server writes the code to a text file in the CRM's Drive folder (only its hash goes to Script Properties) and never returns it to the browser, so only someone who can open the owner's Drive can read it. Codes are 8 characters, expire after 30 minutes, work once, share the wrong-guess limit with passcodes, and the file is trashed after use.
 - **Wrong guesses.** They're counted in CacheService. After 8, unlocking pauses for 15 minutes.
 - **Changing it** requires a valid token and the current passcode, and signs out every other device.
-- **Reset.** Running `allowPasscodeReset()` from the editor opens a 15-minute window to choose a new passcode.
+- **Reset from the editor.** `allowPasscodeReset()` writes a fresh setup code, the same as tapping **Forgot passcode?**.
 - **The link is never printed** in deploy logs or summaries, because the repository is public.
 
 **General**
 
 - No credentials, API keys, OAuth secrets or tokens appear anywhere in the code. Apps Script runs as the owner, and Google handles authentication.
-- The deployment is "Only myself", so no one else can open the URL.
+- The deployment is "Anyone" (no Google sign-in), so the page itself loads for anyone with the link, but every data call is refused without a device token from the passcode. The page holds no data until it is unlocked.
 - The folder ID is not a secret: it only works for accounts that already have access.
 - The script uses the full Drive scope, because that is what Apps Script's `DriveApp` requires to find an existing folder. It only reads and writes files whose names match `crm_state_…` / `pending_crm_state_…` in that one folder.
 - The local buffer lives in this browser's storage. On a shared computer, use a private profile.

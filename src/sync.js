@@ -10,7 +10,7 @@ const LS_TOKEN = 'crm_acq_token_v1';
 /** Passcode lock: a device token proves this browser entered the passcode. */
 const Auth = {
   token: null,
-  status: null,   // from the server: { passcodeSet, canSetPasscode, setup, devices }
+  status: null,   // from the server: { passcodeSet, canSetPasscode, unlocked, devices }
   load() { try { this.token = localStorage.getItem(LS_TOKEN) || null; } catch (e) { this.token = null; } },
   save(t) {
     this.token = t || null;
@@ -389,7 +389,8 @@ const Sync = {
     clearTimeout(this.retryTimer);
     this.connected = false;
     this.status = 'locked';
-    this.locked = { passcodeSet: !!res.passcodeSet || res.code === 'SETUP', setup: res.code === 'SETUP', message: res.message || '' };
+    const passcodeSet = !!res.passcodeSet || res.code === 'SETUP';
+    this.locked = { passcodeSet, mode: passcodeSet ? 'unlock' : 'setup', message: res.message || '' };
     if (res.code === 'LOCKED' && Auth.token) Auth.save(null);   // token expired or was signed out
     this.persistLocal();
     UI.render();
@@ -404,9 +405,30 @@ const Sync = {
     return { ok: true };
   },
 
-  /** First passcode (owner, signed in), a reset, or a change (needs current passcode). */
-  async setPasscode(newPasscode, currentPasscode) {
-    const r = await gas('api_setPasscode', { newPasscode, currentPasscode: currentPasscode || '', label: Auth.label() }, 30000);
+  /** Lock screen: switch between unlocking and setting a passcode with a setup code. */
+  lockMode(mode) {
+    if (!this.locked) return;
+    this.locked = { passcodeSet: this.locked.passcodeSet, mode, message: '' };
+    UI.render();
+  },
+
+  /** Asks the server to save a one-time setup code in the Drive folder (the code itself never comes back here). */
+  async requestSetupCode() {
+    if (!this.locked) return null;
+    this.locked = Object.assign({}, this.locked, { mode: 'setup', busy: true, error: '' });
+    UI.render();
+    let r;
+    try { r = await gas('api_requestSetupCode', null, 30000); } catch (e) { r = { ok: false, message: friendlyError(e) }; }
+    if (!this.locked) return r;
+    if (r && r.ok) this.locked = Object.assign({}, this.locked, { busy: false, codeSent: true, folderName: r.folderName, minutes: r.minutes, sentAt: Date.now() });
+    else this.locked = Object.assign({}, this.locked, { busy: false, error: (r && r.message) || 'Couldn’t save a setup code. Try again.' });
+    UI.render();
+    return r;
+  },
+
+  /** First passcode (owner signed in, or with a setup code), a reset (setup code), or a change (needs current passcode). */
+  async setPasscode(newPasscode, currentPasscode, setupCode) {
+    const r = await gas('api_setPasscode', { newPasscode, currentPasscode: currentPasscode || '', setupCode: setupCode || '', label: Auth.label() }, 30000);
     if (!r || !r.ok) return r || { message: 'No response' };
     Auth.save(r.token);
     if (this.locked) { this.locked = null; await this.connect(); }
