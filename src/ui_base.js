@@ -58,6 +58,19 @@ const UI = {
   render() {
     const root = document.getElementById('app');
     if (!root) return;
+    if (Sync.locked) {
+      document.getElementById('drawer-root').innerHTML = '';
+      document.body.classList.remove('drawer-open');
+      if (!root.querySelector('#lock-form') || root.dataset.lock !== JSON.stringify(Sync.locked)) {
+        root.innerHTML = lockScreen();
+        root.dataset.lock = JSON.stringify(Sync.locked);
+        const inp = document.getElementById('lock-pass');
+        if (inp) setTimeout(() => inp.focus(), 30);
+      }
+      return;
+    }
+    root.dataset.lock = '';
+    if (root.querySelector('#lock-form')) root.innerHTML = '';
     if (!Store.data) { root.innerHTML = bootScreen(); return; }
     buildIndex(Store.data, Store.version);
     // keep focus, caret and scroll positions across re-renders
@@ -224,10 +237,34 @@ function bannerHtml() {
   if (Sync.mode === 'local') {
     return `<div class="banner banner-info">${icon('cloud')}<div><strong>Not connected to Google Drive.</strong> This copy is running outside Google Apps Script, so changes are saved in this browser only. Deploy it as described in the setup guide to sync with your Drive folder.</div></div>`;
   }
+  if (Sync.mode === 'drive' && Auth.status && !Auth.status.passcodeSet && Auth.status.canSetPasscode) {
+    return `<div class="banner banner-info">${icon('alert')}<div><strong>Set a passcode</strong> so you can open your CRM on your phone without signing in to Google.</div>
+      <button class="btn btn-sm" data-act="go-settings" data-tab="security">Set passcode</button></div>`;
+  }
   if (!Sync.localOk) {
     return `<div class="banner banner-warn">${icon('alert')}<div>This browser is not allowing a local safety copy. Changes still sync to Drive, but avoid closing the tab while “Saving…” shows.</div></div>`;
   }
   return '';
+}
+
+function lockScreen() {
+  const L = Sync.locked || {};
+  const setup = L.setup;
+  const canEnter = L.passcodeSet || setup;
+  return `<div class="boot lock">
+    <div class="brand-mark big" aria-hidden="true"><span></span><span></span><span></span></div>
+    <h1>${setup ? 'Choose a new passcode' : canEnter ? 'Enter your passcode' : 'This CRM is locked'}</h1>
+    <p>${setup ? 'A passcode reset was started from the Apps Script editor. Choose a new passcode of at least 6 characters.'
+      : canEnter ? 'Client Acquisition CRM. This device stays unlocked for 90 days.'
+      : 'Open the CRM on a computer signed in to your Google account, then set a passcode in Settings → Passcode & devices.'}</p>
+    ${canEnter ? `<form id="lock-form" class="lock-form" autocomplete="on" novalidate>
+      <label class="sr" for="lock-pass">Passcode</label>
+      <input id="lock-pass" class="inp" type="password" name="passcode" autocomplete="${setup ? 'new-password' : 'current-password'}" placeholder="${setup ? 'New passcode' : 'Passcode'}" required>
+      ${setup ? '<label class="sr" for="lock-pass2">Confirm passcode</label><input id="lock-pass2" class="inp" type="password" name="confirm" autocomplete="new-password" placeholder="Type it again">' : ''}
+      <button class="btn btn-primary" type="submit">${setup ? 'Save passcode' : 'Unlock'}</button>
+      <div id="lock-msg" class="field-error" role="alert"></div>
+    </form>` : ''}
+  </div>`;
 }
 
 function bootScreen() {

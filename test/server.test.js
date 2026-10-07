@@ -218,5 +218,77 @@ function save(ctx, baseSeq, data, extra) {
   ok(!r.ok && r.retryable, 'list error reported');
 }
 
+
+// 16. Passcode lock
+{
+  const { env, ctx } = boot();
+  // before a passcode: owner gets in, anyone else is locked out and cannot set the first passcode
+  ok(ctx.api_bootstrap({ timeZone: 'Asia/Manila' }).ok, 'owner opens before a passcode exists');
+  ok(ctx.api_bootstrap({ timeZone: 'Asia/Manila' }).auth.canSetPasscode === true, 'owner is offered to set a passcode');
+  env._setActiveUser('');
+  const anon = ctx.api_bootstrap({ timeZone: 'Asia/Manila' });
+  ok(!anon.ok && anon.code === 'LOCKED' && anon.passcodeSet === false, 'anonymous visitor locked out before passcode');
+  ok(ctx.api_setPasscode({ newPasscode: 'attacker1' }).code === 'OWNER_ONLY', 'anonymous visitor cannot set the first passcode');
+  ok(!save(ctx, 0, makeData(1)).ok, 'anonymous visitor cannot save');
+  env._setActiveUser('vajoshlara@gmail.com');
+
+  ok(ctx.api_setPasscode({ newPasscode: '123' }).code === 'WEAK_PASSCODE', 'short passcode rejected');
+  const set = ctx.api_setPasscode({ newPasscode: 'Reading-Room-42', label: 'laptop' });
+  ok(set.ok && set.token && set.token.length >= 32, 'owner sets passcode and gets a device token');
+  ok(!JSON.stringify(env._props).includes('Reading-Room-42'), 'passcode itself is never stored');
+  ok(!JSON.stringify(env._props).includes(set.token), 'raw token is never stored');
+
+  // now everyone, even the owner, needs a token
+  ok(ctx.api_bootstrap({ timeZone: 'Asia/Manila' }).code === 'LOCKED', 'no token -> locked');
+  ok(ctx.api_bootstrap({ timeZone: 'Asia/Manila', token: 'x'.repeat(40) }).code === 'LOCKED', 'bad token -> locked');
+  ok(ctx.api_bootstrap({ timeZone: 'Asia/Manila', token: set.token }).ok, 'valid token -> opens');
+  ok(ctx.api_head({ token: set.token }).ok && ctx.api_head({}).code === 'LOCKED', 'head checks token');
+  ok(ctx.api_listStates({ token: set.token }).ok && ctx.api_listStates().code === 'LOCKED', 'listStates checks token');
+  ok(ctx.api_getState({ fileId: 'f1' }).code === 'LOCKED', 'getState checks token');
+  ok(save(ctx, 0, makeData(1)).code === 'LOCKED', 'save without token refused');
+  ok(save(ctx, 0, makeData(1), { token: set.token }).ok, 'save with token works');
+
+  // unlock from a phone, anonymously
+  env._setActiveUser('');
+  const wrong = ctx.api_unlock({ passcode: 'nope-nope' });
+  ok(!wrong.ok && wrong.code === 'WRONG_PASSCODE' && /7 attempts left/.test(wrong.message), 'wrong passcode counted');
+  const phone = ctx.api_unlock({ passcode: 'Reading-Room-42', label: 'phone' });
+  ok(phone.ok && phone.token !== set.token, 'correct passcode unlocks a second device');
+  ok(ctx.api_bootstrap({ timeZone: 'Asia/Manila', token: phone.token }).ok, 'phone token opens the CRM');
+
+  // brute force is throttled
+  let last;
+  for (let i = 0; i < 8; i++) last = ctx.api_unlock({ passcode: 'guess' + i });
+  ok(last.code === 'RATE_LIMITED', '8 wrong guesses trigger a pause');
+  ok(ctx.api_unlock({ passcode: 'Reading-Room-42' }).code === 'RATE_LIMITED', 'even the right passcode waits during the pause');
+  env._cache.crm_lock_until.exp = 0;
+  ok(ctx.api_unlock({ passcode: 'Reading-Room-42' }).ok, 'after the pause the right passcode works');
+
+  // change passcode: needs a token and the current passcode; signs other devices out
+  ok(ctx.api_setPasscode({ newPasscode: 'NewPass-77', currentPasscode: 'Reading-Room-42' }).code === 'LOCKED', 'change needs a token');
+  ok(ctx.api_setPasscode({ newPasscode: 'NewPass-77', currentPasscode: 'wrong', token: phone.token }).code === 'WRONG_PASSCODE', 'change needs the current passcode');
+  const changed = ctx.api_setPasscode({ newPasscode: 'NewPass-77', currentPasscode: 'Reading-Room-42', token: phone.token });
+  ok(changed.ok && ctx.api_head({ token: changed.token }).ok, 'passcode changed, this device stays in');
+  ok(ctx.api_head({ token: set.token }).code === 'LOCKED', 'other devices signed out after a change');
+
+  // sign out other devices
+  const lap = ctx.api_unlock({ passcode: 'NewPass-77' });
+  ok(ctx.api_signOutOthers({ token: changed.token }).ok, 'sign out others');
+  ok(ctx.api_head({ token: lap.token }).code === 'LOCKED' && ctx.api_head({ token: changed.token }).ok, 'only the current device remains');
+
+  // token expiry
+  const rec = JSON.parse(env._props.CRM_DEVICE_TOKENS);
+  Object.keys(rec).forEach(k => { rec[k].exp = Date.now() - 1; });
+  env._props.CRM_DEVICE_TOKENS = JSON.stringify(rec);
+  ok(ctx.api_head({ token: changed.token }).code === 'LOCKED', 'expired token refused');
+
+  // forgot passcode: editor opens a 15-minute reset window
+  ok(/15 minutes/.test(ctx.allowPasscodeReset()), 'reset helper runs');
+  ok(ctx.api_bootstrap({ timeZone: 'Asia/Manila' }).code === 'SETUP', 'during reset the app asks for a new passcode');
+  const reset = ctx.api_setPasscode({ newPasscode: 'Fresh-Start-1' });
+  ok(reset.ok && ctx.api_head({ token: reset.token }).ok, 'new passcode set during reset window (no sign-in needed)');
+  ok(ctx.api_setPasscode({ newPasscode: 'Another-1' }).code === 'LOCKED', 'reset window closes after use');
+}
+
 console.log(`server tests: ${pass} passed, ${failN} failed`);
 process.exit(failN ? 1 : 0);

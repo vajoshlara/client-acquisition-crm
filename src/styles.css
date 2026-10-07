@@ -635,6 +635,10 @@ select.inp { appearance: none; background-image: url("data:image/svg+xml,%3Csvg 
 .boot p { color: var(--ink-3); max-width: 46ch; }
 .boot-actions { display: flex; gap: 10px; margin-top: 10px; }
 .boot .hint { font-size: 12.5px; }
+.lock-form { display: flex; flex-direction: column; gap: 10px; width: min(320px, 100%); margin-top: 12px; }
+.lock-form .inp { font-size: 16px; min-height: 44px; text-align: center; }
+.lock-form .btn { height: 44px; font-size: 15px; }
+.lock-form .field-error { min-height: 1.2em; }
 .spinner { width: 26px; height: 26px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; margin-top: 10px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 

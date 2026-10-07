@@ -157,6 +157,19 @@ Built-in stage side effects:
 
 ## 9. Security
 
+**Passcode lock** (`server/Code.gs` → passcode section). It lets the web app be opened without a Google sign-in, for example on a phone, while the data stays private.
+
+- **Storage.** Only a salted, iterated SHA-256 hash of the passcode is kept in Script Properties.
+- **Device tokens.** A correct passcode gets a random device token, valid for 90 days. Only the token's hash is stored, and at most 12 devices are kept.
+- **Checks.** Every data call (bootstrap, head, list, get, save) checks the token on the server.
+- **First passcode.** Before a passcode exists, only the signed-in owner gets in, and only the owner can set the first passcode. That's why the first passcode is set while the deployment is still private.
+- **Wrong guesses.** They're counted in CacheService. After 8, unlocking pauses for 15 minutes.
+- **Changing it** requires a valid token and the current passcode, and signs out every other device.
+- **Reset.** Running `allowPasscodeReset()` from the editor opens a 15-minute window to choose a new passcode.
+- **The link is never printed** in deploy logs or summaries, because the repository is public.
+
+**General**
+
 - No credentials, API keys, OAuth secrets or tokens appear anywhere in the code. Apps Script runs as the owner, and Google handles authentication.
 - The deployment is "Only myself", so no one else can open the URL.
 - The folder ID is not a secret: it only works for accounts that already have access.

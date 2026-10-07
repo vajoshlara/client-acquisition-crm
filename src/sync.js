@@ -5,6 +5,25 @@
 
 const LS_KEY = 'crm_acq_buffer_v1';
 const LS_DEVICE = 'crm_acq_device_v1';
+const LS_TOKEN = 'crm_acq_token_v1';
+
+/** Passcode lock: a device token proves this browser entered the passcode. */
+const Auth = {
+  token: null,
+  status: null,   // from the server: { passcodeSet, canSetPasscode, setup, devices }
+  load() { try { this.token = localStorage.getItem(LS_TOKEN) || null; } catch (e) { this.token = null; } },
+  save(t) {
+    this.token = t || null;
+    try { if (t) localStorage.setItem(LS_TOKEN, t); else localStorage.removeItem(LS_TOKEN); } catch (e) { /* kept in memory */ }
+  },
+  label() {
+    const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+    const kind = /iPhone|Android.*Mobile|Mobile Safari/.test(ua) ? 'Phone' : /iPad|Tablet|Android/.test(ua) ? 'Tablet' : 'Computer';
+    const br = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
+    return kind + ' · ' + br;
+  }
+};
+function isLockedRes(r) { return r && !r.ok && (r.code === 'LOCKED' || r.code === 'SETUP'); }
 
 const Store = {
   data: null,
@@ -52,7 +71,7 @@ function gas(fn, arg, timeoutMs) {
     }, timeoutMs || 90000);
     google.script.run
       .withSuccessHandler(r => { if (done) return; done = true; clearTimeout(timer); resolve(r); })
-      .withFailureHandler(err => { if (done) return; done = true; clearTimeout(timer); reject({ code: 'TRANSPORT', message: String(err && err.message || err), retryable: true }); })[fn](arg);
+      .withFailureHandler(err => { if (done) return; done = true; clearTimeout(timer); reject({ code: 'TRANSPORT', message: String(err && err.message || err), retryable: true }); })[fn](Object.assign({}, arg || {}, { token: Auth.token || '' }));
   });
 }
 
@@ -93,6 +112,7 @@ const Sync = {
       this.deviceId = localStorage.getItem(LS_DEVICE);
       if (!this.deviceId) { this.deviceId = uid('dev'); localStorage.setItem(LS_DEVICE, this.deviceId); }
     } catch (e) { this.deviceId = uid('dev'); }
+    Auth.load();
     const buf = this.readLocal();
     this.mode = hasGAS() ? 'drive' : 'local';
     if (buf && buf.data) {
@@ -165,7 +185,10 @@ const Sync = {
     clearTimeout(this.retryTimer);
     try {
       const res = await gas('api_bootstrap', { timeZone: userTimeZone() });
+      if (isLockedRes(res)) { this.enterLocked(res); return; }
       if (!res || !res.ok) throw res || { message: 'No response' };
+      this.locked = null;
+      Auth.status = res.auth || null;
       this.folder = res.folder;
       this.user = res.user || '';
       this.states = res.states || [];
@@ -281,20 +304,26 @@ const Sync = {
           UI.toast('Merged changes made in another tab or device.');
           continue;
         }
+        if (isLockedRes(res)) throw { lockedRes: res };
         throw res || { message: 'No response from Google Drive.' };
       }
     } catch (e) {
-      this.failures++;
-      this.status = 'failed';
-      this.lastError = friendlyError(e);
-      if (!(e && e.retryable === false)) this.armRetry(() => this.syncNow({ force: true }));
-      if (opts.manual) UI.toast('Sync failed: ' + this.lastError, 'error');
+      if (e && e.lockedRes) {
+        this.inFlight = false;
+        this.enterLocked(e.lockedRes);
+      } else {
+        this.failures++;
+        this.status = 'failed';
+        this.lastError = friendlyError(e);
+        if (!(e && e.retryable === false)) this.armRetry(() => this.syncNow({ force: true }));
+        if (opts.manual) UI.toast('Sync failed: ' + this.lastError, 'error');
+      }
     } finally {
       this.inFlight = false;
-      if (!this.failures) this.status = this.dirty ? 'pending' : 'synced';
+      if (!this.failures && !this.locked) this.status = this.dirty ? 'pending' : 'synced';
       this.persistLocal();
       UI.renderSync();
-      if (!this.failures && (this.queued || this.dirty)) { this.queued = false; this.schedule(1500); }
+      if (!this.failures && !this.locked && (this.queued || this.dirty)) { this.queued = false; this.schedule(1500); }
       this.queued = false;
     }
   },
@@ -305,6 +334,7 @@ const Sync = {
     if (this.dirty) { if (!this.failures) this.syncNow(); return; }
     try {
       const h = await gas('api_head', null, 30000);
+      if (isLockedRes(h)) { this.enterLocked(h); return; }
       if (!h || !h.ok || !h.head || h.head.seq <= this.baseSeq || this.dirty || this.inFlight) return;
       const b = await gas('api_bootstrap', { timeZone: userTimeZone() });
       if (!b || !b.ok || !b.latest || this.dirty || this.inFlight) return;
@@ -326,6 +356,7 @@ const Sync = {
     this.statesLoading = true;
     try {
       const r = await gas('api_listStates', null, 45000);
+      if (isLockedRes(r)) { this.statesLoading = false; this.enterLocked(r); return; }
       if (r && r.ok) { this.states = r.states; this.statesCount = r.states.length; this.statesError = null; }
       else this.statesError = friendlyError(r);
     } catch (e) { this.statesError = friendlyError(e); }
@@ -337,6 +368,7 @@ const Sync = {
   async restoreState(meta) {
     if (this.inFlight) throw { message: 'A save is in progress. Try again in a moment.' };
     const r = await gas('api_getState', { fileId: meta.file_id });
+    if (isLockedRes(r)) { this.enterLocked(r); throw { message: 'Enter your passcode, then try the restore again.' }; }
     if (!r || !r.ok) throw r || { message: 'No response' };
     if (r.meta.checksum && sha256Hex(r.dataJson) !== r.meta.checksum) throw { message: 'That state failed its integrity check, so it was not restored.' };
     Store.replace(JSON.parse(r.dataJson));
@@ -351,8 +383,58 @@ const Sync = {
     if (this.failures) throw { message: this.lastError };
   },
 
+  /** Server refused the request: show the lock screen, keep unsynced changes in the local buffer. */
+  enterLocked(res) {
+    clearTimeout(this.timer);
+    clearTimeout(this.retryTimer);
+    this.connected = false;
+    this.status = 'locked';
+    this.locked = { passcodeSet: !!res.passcodeSet || res.code === 'SETUP', setup: res.code === 'SETUP', message: res.message || '' };
+    if (res.code === 'LOCKED' && Auth.token) Auth.save(null);   // token expired or was signed out
+    this.persistLocal();
+    UI.render();
+  },
+
+  async unlock(passcode) {
+    const r = await gas('api_unlock', { passcode, label: Auth.label() }, 30000);
+    if (!r || !r.ok) return r || { message: 'No response' };
+    Auth.save(r.token);
+    this.locked = null;
+    await this.connect();
+    return { ok: true };
+  },
+
+  /** First passcode (owner, signed in), a reset, or a change (needs current passcode). */
+  async setPasscode(newPasscode, currentPasscode) {
+    const r = await gas('api_setPasscode', { newPasscode, currentPasscode: currentPasscode || '', label: Auth.label() }, 30000);
+    if (!r || !r.ok) return r || { message: 'No response' };
+    Auth.save(r.token);
+    if (this.locked) { this.locked = null; await this.connect(); }
+    else await this.refreshAuth();
+    return { ok: true };
+  },
+
+  async refreshAuth() {
+    try { const a = await gas('api_authStatus', null, 30000); if (a && a.ok) Auth.status = a; } catch (e) { /* keep last known */ }
+    UI.render();
+  },
+
+  async signOutOthers() {
+    const r = await gas('api_signOutOthers', null, 30000);
+    if (isLockedRes(r)) { this.enterLocked(r); return r; }
+    if (r && r.ok) await this.refreshAuth();
+    return r;
+  },
+
+  lockThisDevice() {
+    this.persistLocal();
+    Auth.save(null);
+    this.enterLocked({ code: 'LOCKED', passcodeSet: true, message: 'Locked on this device.' });
+  },
+
   label() {
     switch (this.status) {
+      case 'locked': return { tone: 'muted', title: 'Locked', sub: 'Enter your passcode to continue' };
       case 'local': return { tone: 'muted', title: 'Google Drive: Not connected', sub: this.localOk ? 'Saved in this browser only' : 'This browser is not keeping a copy' };
       case 'connecting': return { tone: 'muted', title: 'Connecting to Google Drive…', sub: this.dirty ? 'Unsynced changes are kept on this device' : '' };
       case 'syncing': return { tone: 'muted', title: 'Google Drive: Connected ✓', sub: 'Saving changes…' };

@@ -91,7 +91,10 @@
     var folderId = opts.folderId || '1bVkFPtIHF8sWQuDu6hr1_IMptwTsXfv2';
     folders[folderId] = { id: folderId, name: '08_Claude CRM Project' };
 
-    var props = {};
+    var props = opts.props || {};
+    var cache = {};
+    var activeUser = opts.activeUser === undefined ? 'vajoshlara@gmail.com' : opts.activeUser;
+    var uuidN = 0;
     var locked = false;
     var tzOffsets = { 'Asia/Manila': 480, 'Etc/UTC': 0, 'UTC': 0 };
     function fmt(date, tz, pattern) {
@@ -124,18 +127,32 @@
       Utilities: {
         DigestAlgorithm: { SHA_256: 'SHA_256' }, Charset: { UTF_8: 'UTF_8' },
         computeDigest: function (alg, s) { return sha256Bytes(s); },
+        getUuid: function () { uuidN++; var r = ''; for (var i = 0; i < 32; i++) r += Math.floor(Math.random() * 16).toString(16); return r.slice(0, 8) + '-' + r.slice(8, 12) + '-' + r.slice(12, 16) + '-' + r.slice(16, 20) + '-' + r.slice(20); },
         formatDate: fmt
       },
       PropertiesService: { getScriptProperties: function () { return {
-        getProperty: function (k) { return props[k] || null; }, setProperty: function (k, v) { props[k] = v; }
+        getProperty: function (k) { return props[k] || null; }, setProperty: function (k, v) { props[k] = String(v); },
+        deleteProperty: function (k) { delete props[k]; }
       }; } },
-      Session: { getActiveUser: function () { return { getEmail: function () { return 'vajoshlara@gmail.com'; } }; }, getScriptTimeZone: function () { return 'Asia/Manila'; } },
+      Session: {
+        getActiveUser: function () { return { getEmail: function () { return activeUser; } }; },
+        getEffectiveUser: function () { return { getEmail: function () { return 'vajoshlara@gmail.com'; } }; },
+        getScriptTimeZone: function () { return 'Asia/Manila'; }
+      },
+      CacheService: { getScriptCache: function () { return {
+        get: function (k) { var e = cache[k]; return e && e.exp > Date.now() ? e.v : null; },
+        put: function (k, v, secs) { cache[k] = { v: String(v), exp: Date.now() + (secs || 600) * 1000 }; },
+        remove: function (k) { delete cache[k]; }
+      }; } },
       HtmlService: { XFrameOptionsMode: { DEFAULT: 'DEFAULT' } },
       // test controls
       _faults: faults,
       _files: files,
       _log: log,
       _setLocked: function (v) { locked = v; },
+      _setActiveUser: function (v) { activeUser = v; },
+      _props: props,
+      _cache: cache,
       _committed: function () {
         return Object.keys(files).map(function (k) { return files[k]; })
           .filter(function (f) { return !f.trashed && /^crm_state_/.test(f.name); })

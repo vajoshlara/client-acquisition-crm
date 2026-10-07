@@ -526,6 +526,58 @@ ACTIONS['restore-state'] = async el => {
   }
 };
 
+/* ------------------------------------------------------------ passcode */
+async function submitLockForm(form) {
+  const msg = document.getElementById('lock-msg');
+  const btn = form.querySelector('button[type=submit]');
+  const pass = form.querySelector('#lock-pass').value;
+  const confirm2 = form.querySelector('#lock-pass2');
+  if (!pass) { msg.textContent = 'Enter your passcode.'; return; }
+  if (confirm2 && confirm2.value !== pass) { msg.textContent = 'The two passcodes don’t match.'; return; }
+  btn.disabled = true;
+  msg.textContent = '';
+  try {
+    const r = Sync.locked && Sync.locked.setup ? await Sync.setPasscode(pass) : await Sync.unlock(pass);
+    if (!r.ok) {
+      msg.textContent = r.message || 'That didn’t work. Try again.';
+      btn.disabled = false;
+      const inp = form.querySelector('#lock-pass');
+      inp.value = '';
+      inp.focus();
+    }
+  } catch (e) {
+    msg.textContent = friendlyError(e);
+    btn.disabled = false;
+  }
+}
+ACTIONS['passcode-save'] = async el => {
+  const msg = document.getElementById('pc-msg');
+  const cur = document.getElementById('pc-current');
+  const next = document.getElementById('pc-new').value;
+  const conf = document.getElementById('pc-confirm').value;
+  msg.textContent = '';
+  if (next.length < 6) { msg.textContent = 'Use at least 6 characters.'; return; }
+  if (next !== conf) { msg.textContent = 'The two passcodes don’t match.'; return; }
+  if (cur && !cur.value) { msg.textContent = 'Enter your current passcode.'; return; }
+  el.disabled = true;
+  try {
+    const r = await Sync.setPasscode(next, cur ? cur.value : '');
+    if (!r.ok) { msg.textContent = r.message || 'That didn’t work.'; el.disabled = false; return; }
+    UI.toast(cur ? 'Passcode changed. Other devices will need the new passcode.' : 'Passcode set. This device is unlocked for 90 days.');
+  } catch (e) {
+    msg.textContent = friendlyError(e);
+    el.disabled = false;
+  }
+};
+ACTIONS['passcode-signout-others'] = async () => {
+  const ok = await confirmDialog({ title: 'Sign out other devices?', confirmLabel: 'Sign them out', message: 'Every device except this one will need your passcode again.' });
+  if (!ok) return;
+  const r = await Sync.signOutOthers();
+  if (r && r.ok) UI.toast(r.removed ? 'Signed out ' + plural(r.removed, 'other device') + '.' : 'No other devices were signed in.');
+  else if (r && r.message) UI.toast(r.message, 'error');
+};
+ACTIONS['passcode-lock'] = () => Sync.lockThisDevice();
+
 /* ------------------------------------------------------------ settings edits */
 function setMutate(fn) { Store.mutate('settings', d => { fn(d.settings, d); touch(d.settings); }); }
 CHANGES['stage-rename'] = el => { const v = el.value.trim(); if (v) setMutate(s => { s.stages.find(x => x.id === el.dataset.id).name = v; }); else UI.render(); };
@@ -674,6 +726,7 @@ function wireEvents() {
   });
   document.addEventListener('submit', e => {
     if (e.target.id === 'pform') { e.preventDefault(); submitProspectForm(e.target); }
+    if (e.target.id === 'lock-form') { e.preventDefault(); submitLockForm(e.target); }
   });
   document.addEventListener('focusin', e => {
     if (e.target.id === 'global-q' && UI.globalQ) { UI.globalOpen = true; UI.renderGlobalResults(); }

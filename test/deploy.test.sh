@@ -10,22 +10,23 @@ run() { : > "$GITHUB_STEP_SUMMARY"; node scripts/deploy-webapp.mjs > "$T/log" 2>
 
 run
 ok '[ "$(cat $T/rc)" = 0 ]' 'first deploy succeeds'
-ok 'grep -q "Created the web app deployment" $GITHUB_STEP_SUMMARY' 'first deploy creates a deployment'
-ok 'grep -q "macros/s/AKfyNEW1/exec" $GITHUB_STEP_SUMMARY' 'summary shows the web app URL'
-ok 'grep -q "Review permissions" $GITHUB_STEP_SUMMARY' 'first deploy explains authorization'
+ok 'grep -q "Created the CRM web app" $GITHUB_STEP_SUMMARY' 'first deploy creates a deployment'
+ok '! grep -q "macros/s/" $GITHUB_STEP_SUMMARY $T/log' 'web app link is never printed (public repo)'
+ok 'grep -q "Manage deployments" $GITHUB_STEP_SUMMARY' 'first deploy explains where to find the link'
 ok 'grep -q -- "--auth $CLASP_AUTH" <(node -e "console.log(JSON.parse(require(\"fs\").readFileSync(process.env.FAKE_STATE)).calls.join(\"\n\"))")' 'credentials path passed to clasp'
 
 run
 ok '[ "$(cat $T/rc)" = 0 ]' 'second deploy succeeds'
-ok 'grep -q "Updated the existing web app deployment" $GITHUB_STEP_SUMMARY' 'second deploy updates, not creates'
+ok 'grep -q "Updated your existing CRM web app" $GITHUB_STEP_SUMMARY' 'second deploy updates, not creates'
 ok '[ "$(node -e "const s=JSON.parse(require(\"fs\").readFileSync(process.env.FAKE_STATE));console.log(s.deployments.length)")" = 2 ]' 'still exactly one web app deployment (+HEAD)'
-ok 'grep -q "macros/s/AKfyNEW1/exec" $GITHUB_STEP_SUMMARY' 'URL unchanged across deploys'
+ok '[ "$(node -e "const s=JSON.parse(require(\"fs\").readFileSync(process.env.FAKE_STATE));console.log(s.deployments[1].deploymentId)")" = AKfyNEW1 ]' 'same deployment updated (link unchanged)'
+ok '! grep -q "macros/s/" $GITHUB_STEP_SUMMARY $T/log' 'link not printed on redeploy'
 ok 'grep -q "version 2" $GITHUB_STEP_SUMMARY' 'points at the new version'
 
 # existing manual deployment (made in the editor) is reused
 rm -f "$FAKE_STATE"; echo '{"versions":3,"deployments":[{"deploymentId":"HEADID"},{"deploymentId":"AKfyMANUAL","versionNumber":3,"description":"v1.0.0"}],"pushes":0,"calls":[]}' > "$FAKE_STATE"
 run
-ok 'grep -q "macros/s/AKfyMANUAL/exec" $GITHUB_STEP_SUMMARY' 'reuses a deployment created by hand'
+ok 'grep -q -- "--deploymentId AKfyMANUAL" <(node -e "console.log(JSON.parse(require(\"fs\").readFileSync(process.env.FAKE_STATE)).calls.join(\"\n\"))")' 'reuses a deployment created by hand'
 
 # version limit warning
 echo '{"versions":185,"deployments":[{"deploymentId":"HEADID"},{"deploymentId":"AKfyX","versionNumber":185,"description":"CRM web app · old"}],"pushes":0,"calls":[]}' > "$FAKE_STATE"

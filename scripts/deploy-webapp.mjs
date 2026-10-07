@@ -71,8 +71,6 @@ function main() {
   const args = ['create-deployment', '--description', description];
   if (target) args.push('--deploymentId', target.deploymentId);
   const result = clasp(args);
-  const id = result.deploymentId;
-  const url = `https://script.google.com/macros/s/${id}/exec`;
 
   let versionNote = '';
   try {
@@ -85,13 +83,11 @@ function main() {
     }
   } catch (e) { /* informational only */ }
 
+  // The repository is public, so the web app link is never printed here (logs and summaries are visible to anyone).
   summary(`## ✅ Deployed to Apps Script
-${target ? 'Updated the existing web app deployment' : '**Created the web app deployment** (first deploy)'} to **version ${result.versionNumber}** from commit \`${SHA}\`.
+${target ? 'Updated your existing CRM web app' : '**Created the CRM web app** (first deploy)'} to **version ${result.versionNumber}** from commit \`${SHA}\`. Your CRM link is unchanged.
+${target ? '' : '\nFind the link in the Apps Script editor: **Deploy → Manage deployments → Web app URL**. Open it once to allow access, then bookmark it.\n'}${versionNote}`);
 
-**Your CRM:** ${url}
-${target ? '' : '\nFirst deploy: open the link above once and click **Review permissions → Advanced → Go to Client Acquisition CRM → Allow**. Bookmark it; the URL stays the same for every future deploy.\n'}${versionNote}`);
-
-  if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `url=${url}\n`);
 }
 
 try {

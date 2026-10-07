@@ -75,6 +75,18 @@ If you ever need to deploy without GitHub:
 
 Keyboard: `/` jumps to search, and `Esc` closes panels and dialogs.
 
+## Passcode
+
+The CRM link can be opened on any device, with no Google sign-in. A passcode keeps your data private.
+
+- **New devices** ask for the passcode once and then stay unlocked for 90 days.
+- **Settings → Passcode & devices** lets you change the passcode, sign out other devices, or lock the current device.
+- **The server checks it.** Without the passcode, the server refuses to send or change any data, even to someone who has the link. After 8 wrong tries it pauses for 15 minutes.
+- **Forgot it?**
+  1. Open the Apps Script project (Drive → 07_Google App Script → Client Acquisition CRM).
+  2. Choose the function **allowPasscodeReset** in the toolbar and click **Run**.
+  3. Within 15 minutes, open the CRM link and choose a new passcode.
+
 ## Things to know
 
 - **Use one tab at a time when you can.**

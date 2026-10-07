@@ -326,7 +326,7 @@ with sync_playwright() as p:
       const id = 'p_remote_device';
       remote.prospects[id] = Object.assign({}, Object.values(remote.prospects)[0], {id, company: 'Remote Device Co', updatedAt: new Date().toISOString()});
       const dataJson = JSON.stringify(remote);
-      const r = __api.api_save({baseSeq: seq, saveId: 'other-device', checksum: sha256Hex(dataJson), dataJson, timeZone: 'Asia/Manila', counts: {prospects: 1}});
+      const r = __api.api_save({baseSeq: seq, saveId: 'other-device', checksum: sha256Hex(dataJson), dataJson, timeZone: 'Asia/Manila', counts: {prospects: 1}, token: localStorage.getItem('crm_acq_token_v1') || ''});
       localStorage.setItem('__mockdrive', JSON.stringify(__env._files));
       return r.ok;
     }""", seq)
@@ -455,6 +455,67 @@ with sync_playwright() as p:
     pw = prospect_by_company(pg, 'Pipeline Win Co')
     check(pw['client']['status'] == 'current' and pw['client']['since'] == js(pg, 'todayStr()') and not pw.get('historical'), 'pipeline win becomes a current client (counted in metrics)')
     check(wait_synced(pg, 20), 'client changes synced')
+
+
+    # ---------- passcode lock (for opening the CRM on a phone without Google sign-in)
+    js(pg, "CRM.UI.settingsTab = 'security'; CRM.UI.go('settings')")
+    pg.wait_for_selector('#pc-new')
+    check('Set a passcode' in pg.inner_text('#banner'), 'banner invites the owner to set a passcode')
+    pg.fill('#pc-new', 'abc'); pg.fill('#pc-confirm', 'abc'); pg.click('[data-act=passcode-save]')
+    check('at least 6' in pg.inner_text('#pc-msg'), 'short passcode rejected in the app')
+    pg.fill('#pc-new', 'Reading-Room-42'); pg.fill('#pc-confirm', 'Reading-Room-43'); pg.click('[data-act=passcode-save]')
+    check('match' in pg.inner_text('#pc-msg'), 'mismatched passcodes rejected')
+    pg.fill('#pc-confirm', 'Reading-Room-42'); pg.click('[data-act=passcode-save]')
+    pg.wait_for_selector('text=Passcode is on', timeout=10000)
+    check(len(js(pg, "localStorage.getItem('crm_acq_token_v1') || ''")) >= 32, 'this device keeps a token after setting the passcode')
+    check('Set a passcode' not in pg.inner_text('#banner'), 'banner gone once a passcode exists')
+    pg.reload(); pg.wait_for_selector('#view h1')
+    check(pg.locator('#lock-form').count() == 0 and wait_synced(pg), 'this device stays unlocked after reload')
+    count_before = js(pg, "Object.keys(CRM.Store.data.prospects).length")
+
+    # a new device (no token): lock screen, no data on screen
+    js(pg, "localStorage.removeItem('crm_acq_token_v1')")
+    pg.reload(); pg.wait_for_selector('#lock-form')
+    check(pg.locator('.shell').count() == 0 and 'Former Client Co' not in pg.inner_text('body'), 'locked device shows no CRM data')
+    pg.fill('#lock-pass', 'wrong-guess'); pg.click('#lock-form button[type=submit]')
+    pg.wait_for_function("document.getElementById('lock-msg') && document.getElementById('lock-msg').textContent.length > 0")
+    check('isn’t right' in pg.inner_text('#lock-msg'), 'wrong passcode explained')
+    pg.screenshot(path=SHOTS + '11_lock_screen.png')
+    # unlock as an anonymous visitor (the public link on a phone)
+    js(pg, "__env._setActiveUser('')")
+    pg.fill('#lock-pass', 'Reading-Room-42'); pg.click('#lock-form button[type=submit]')
+    pg.wait_for_selector('.shell', timeout=15000)
+    check(wait_synced(pg, 15), 'correct passcode unlocks and syncs')
+    check(js(pg, "Object.keys(CRM.Store.data.prospects).length") == count_before, 'all data is there after unlocking')
+    js(pg, "CRM.Store.mutate('t', d => createProspect(d, {company: 'Phone Added Co'}))")
+    check(wait_synced(pg, 15), 'changes made from the unlocked phone sync to Drive')
+    latest = js(pg, "JSON.parse(__api.api_bootstrap({timeZone:'Asia/Manila', token: localStorage.getItem('crm_acq_token_v1')}).latest.dataJson)")
+    check(any(p['company'] == 'Phone Added Co' for p in latest['prospects'].values()), 'phone change reached Drive')
+    check(js(pg, "__api.api_bootstrap({timeZone:'Asia/Manila'}).code") == 'LOCKED', 'without a token the server refuses data')
+
+    # token revoked elsewhere: the next save shows the lock screen, change kept locally
+    js(pg, "__env._props.CRM_DEVICE_TOKENS = '{}'")
+    js(pg, "CRM.Store.mutate('t', d => createProspect(d, {company: 'After Revoke Co'}))")
+    pg.wait_for_selector('#lock-form', timeout=15000)
+    buf = js(pg, "JSON.parse(localStorage.getItem('crm_acq_buffer_v1'))")
+    check(buf['dirty'] and any(p['company'] == 'After Revoke Co' for p in buf['data']['prospects'].values()), 'unsynced change kept while locked')
+    pg.fill('#lock-pass', 'Reading-Room-42'); pg.click('#lock-form button[type=submit]')
+    pg.wait_for_selector('.shell', timeout=15000)
+    check(wait_synced(pg, 20) and prospect_by_company(pg, 'After Revoke Co') is not None, 'after unlocking, the held change syncs')
+    latest = js(pg, "JSON.parse(__api.api_bootstrap({timeZone:'Asia/Manila', token: localStorage.getItem('crm_acq_token_v1')}).latest.dataJson)")
+    check(any(p['company'] == 'After Revoke Co' for p in latest['prospects'].values()), 'held change reached Drive')
+
+    # change passcode, then lock this device
+    js(pg, "CRM.UI.settingsTab = 'security'; CRM.UI.go('settings')")
+    pg.wait_for_selector('#pc-current')
+    pg.fill('#pc-current', 'Reading-Room-42'); pg.fill('#pc-new', 'New-Pass-2026'); pg.fill('#pc-confirm', 'New-Pass-2026')
+    pg.click('[data-act=passcode-save]'); pg.wait_for_timeout(800)
+    check(js(pg, "__api.api_unlock({passcode: 'Reading-Room-42'}).code") == 'WRONG_PASSCODE', 'old passcode no longer works')
+    pg.click('[data-act=passcode-lock]'); pg.wait_for_selector('#lock-form')
+    pg.fill('#lock-pass', 'New-Pass-2026'); pg.click('#lock-form button[type=submit]')
+    pg.wait_for_selector('.shell', timeout=15000)
+    check(wait_synced(pg, 15), 'new passcode unlocks')
+    js(pg, "__env._setActiveUser('vajoshlara@gmail.com')")
 
     # ---------- local-only mode (opened as a plain file)
     pl = new_page(ctx, 'http://127.0.0.1:8765/local.html')

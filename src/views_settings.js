@@ -1,6 +1,6 @@
 /* ============================================================ settings */
 const SETTINGS_TABS = [
-  ['drive', 'Google Drive & recovery'], ['pipeline', 'Pipeline stages'], ['automations', 'Automations'],
+  ['drive', 'Google Drive & recovery'], ['security', 'Passcode & devices'], ['pipeline', 'Pipeline stages'], ['automations', 'Automations'],
   ['tags', 'Tags'], ['lists', 'Sources & services'], ['fields', 'Custom fields'], ['reasons', 'Reasons'],
   ['general', 'General'], ['data', 'Backup & sample data']
 ];
@@ -70,6 +70,40 @@ function storageExplainer() {
       <li><strong>The ${MAX_STATES}-version limit applies to copies of the database, not to leads.</strong> Each version contains every lead you have, whether that’s 10 or 1,000.</li>
     </ol></section>`;
 }
+
+SETTINGS.security = function () {
+  if (Sync.mode !== 'drive') {
+    return `<section class="panel"><div class="panel-head"><h2>Passcode & devices</h2></div><p class="pad muted">The passcode protects the Google Drive version of the CRM. This copy runs in your browser only.</p></section>`;
+  }
+  const a = Auth.status || {};
+  if (!a.passcodeSet) {
+    return `<section class="panel"><div class="panel-head"><h2>Set a passcode</h2></div>
+      <p class="pad">With a passcode, your CRM link can open on any device, including your phone, without signing in to Google. Each device asks for the passcode once and then stays unlocked for 90 days. Without the passcode, nobody can see or change your data, even if they have the link.</p>
+      ${a.canSetPasscode ? `<div class="form-grid pad">
+        <label class="fld"><span>New passcode</span><input class="inp" id="pc-new" type="password" autocomplete="new-password" placeholder="At least 6 characters"></label>
+        <label class="fld"><span>Type it again</span><input class="inp" id="pc-confirm" type="password" autocomplete="new-password"></label>
+      </div>
+      <div class="pad"><button class="btn btn-primary" data-act="passcode-save">Set passcode</button> <span id="pc-msg" class="field-error" role="alert"></span></div>
+      <p class="pad muted small">Pick something you’ll remember but others won’t guess, like a short phrase. Forgot it later? The setup guide explains how to reset it from the Apps Script editor.</p>`
+      : '<p class="pad muted">Open the CRM on a computer while signed in to your Google account to set the first passcode.</p>'}
+    </section>`;
+  }
+  return `<section class="panel"><div class="panel-head"><h2>Passcode is on</h2></div>
+      <p class="pad">Your CRM asks for the passcode on each new device. ${plural(a.devices || 0, 'device is', 'devices are')} unlocked right now (including this one), each for up to 90 days.</p>
+      <div class="pad btn-row"><button class="btn" data-act="passcode-signout-others">Sign out all other devices</button>
+        <button class="btn" data-act="passcode-lock">Lock this device now</button></div>
+    </section>
+    <section class="panel"><div class="panel-head"><h2>Change passcode</h2></div>
+      <div class="form-grid pad">
+        <label class="fld"><span>Current passcode</span><input class="inp" id="pc-current" type="password" autocomplete="current-password"></label>
+        <span></span>
+        <label class="fld"><span>New passcode</span><input class="inp" id="pc-new" type="password" autocomplete="new-password" placeholder="At least 6 characters"></label>
+        <label class="fld"><span>Type it again</span><input class="inp" id="pc-confirm" type="password" autocomplete="new-password"></label>
+      </div>
+      <div class="pad"><button class="btn btn-primary" data-act="passcode-save">Change passcode</button> <span id="pc-msg" class="field-error" role="alert"></span></div>
+      <p class="pad muted small">Changing it signs out every other device.</p>
+    </section>`;
+};
 
 SETTINGS.pipeline = function () {
   const d = Store.data;
