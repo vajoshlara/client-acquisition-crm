@@ -22,7 +22,7 @@ SETTINGS.drive = function () {
   if (Sync.mode === 'local') {
     return `<section class="panel"><div class="panel-head"><h2>Google Drive</h2></div>
       <div class="drive-status tone-muted">${icon('cloud')}<div><strong>${esc(l.title)}</strong><p>${esc(l.sub)}</p></div></div>
-      <p class="pad">This copy is open as a plain file, so it can’t reach Google Drive. Deploy <code>Code.gs</code> and <code>Index.html</code> as a Google Apps Script web app (see the setup guide). Once deployed, your data is saved to <strong>06_ChatGPT CRM Project</strong> with 10 recoverable versions.</p></section>
+      <p class="pad">This copy is open as a plain file, so it can’t reach Google Drive. Deploy <code>Code.gs</code> and <code>Index.html</code> as a Google Apps Script web app (see the setup guide). Once deployed, your data is saved to <strong>08_Claude CRM Project</strong> with 10 recoverable versions.</p></section>
       ${storageExplainer()}`;
   }
   const states = Sync.states || [];
@@ -33,7 +33,7 @@ SETTINGS.drive = function () {
       <p>${esc(l.sub)}</p></div>
       <div class="drive-actions">${Sync.status === 'failed' ? `<button class="btn btn-primary" data-act="sync-retry">${icon('refresh')}Retry</button>` : `<button class="btn" data-act="sync-now" ${Sync.inFlight ? 'disabled' : ''}>${icon('refresh')}Sync now</button>`}</div></div>
     <dl class="facts">
-      <div><dt>Folder</dt><dd>${Sync.folder ? `<a href="${attr(Sync.folder.url)}" target="_blank" rel="noopener">${esc(Sync.folder.name)} ${icon('external')}</a>` : '06_ChatGPT CRM Project'}</dd></div>
+      <div><dt>Folder</dt><dd>${Sync.folder ? `<a href="${attr(Sync.folder.url)}" target="_blank" rel="noopener">${esc(Sync.folder.name)} ${icon('external')}</a>` : '08_Claude CRM Project'}</dd></div>
       <div><dt>Account</dt><dd>${esc(Sync.user || '—')}</dd></div>
       <div><dt>Last synced</dt><dd>${Sync.lastSyncedAt ? esc(fmtLongStamp(Sync.lastSyncedAt)) : '—'}</dd></div>
       <div><dt>Stored states</dt><dd>${Sync.statesCount == null ? '—' : Sync.statesCount + ' of ' + Sync.maxStates}</dd></div>

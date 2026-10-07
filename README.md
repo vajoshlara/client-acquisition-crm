@@ -6,7 +6,7 @@ A personal CRM for running a freelance VA business's client acquisition (Executi
 - **Automations:** trigger → action → wait → action
 - **Calendar and reporting:** a calendar, a dashboard and analytics
 - **History and lifecycle:** activity timelines, and Archive and Trash with full restore
-- **Storage:** data lives in the Google Drive folder **06_ChatGPT CRM Project**, which keeps the 10 most recent versions for recovery
+- **Storage:** data lives in the Google Drive folder **08_Claude CRM Project**, which keeps the 10 most recent versions for recovery
 
 It runs as a private Google Apps Script web app. Every push to `main` is tested and deployed automatically by GitHub Actions.
 

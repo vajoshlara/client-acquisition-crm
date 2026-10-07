@@ -88,8 +88,8 @@
         }
       };
     }
-    var folderId = opts.folderId || '17bqO5Ae2hDmjZLcyX6duXWdlDdV8ozC0';
-    folders[folderId] = { id: folderId, name: '06_ChatGPT CRM Project' };
+    var folderId = opts.folderId || '1bVkFPtIHF8sWQuDu6hr1_IMptwTsXfv2';
+    folders[folderId] = { id: folderId, name: '08_Claude CRM Project' };
 
     var props = {};
     var locked = false;

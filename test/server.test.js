@@ -41,7 +41,7 @@ function save(ctx, baseSeq, data, extra) {
   const { ctx } = boot();
   const r = ctx.api_bootstrap({ timeZone: 'Asia/Manila' });
   ok(r.ok && r.latest === null && r.states.length === 0, 'bootstrap empty');
-  ok(r.folder.name === '06_ChatGPT CRM Project', 'folder name');
+  ok(r.folder.name === '08_Claude CRM Project', 'folder name');
 }
 
 // 2. Rolling 10: 12 saves of a 250-lead CRM keep states 3..12; current data intact

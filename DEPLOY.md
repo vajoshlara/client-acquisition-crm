@@ -77,7 +77,7 @@ The deploy key lets GitHub update your Apps Script project. You'll create it in 
    - "Unsafe" only means Google hasn't reviewed an app you wrote for yourself.
 6. **Bookmark the link.** Every future deploy updates this same address.
 
-After step 4, the sidebar should show **Google Drive: Connected ✓**, and the first stored state appears in **06_ChatGPT CRM Project**.
+After step 4, the sidebar should show **Google Drive: Connected ✓**, and the first stored state appears in **08_Claude CRM Project**.
 
 ---
 

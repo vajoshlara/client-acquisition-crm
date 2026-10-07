@@ -23,9 +23,9 @@
  */
 
 var CRM_CONFIG = {
-  // Folder ID of "06_ChatGPT CRM Project" (not a secret; it only works for accounts with access).
-  FOLDER_ID: '17bqO5Ae2hDmjZLcyX6duXWdlDdV8ozC0',
-  FOLDER_NAME: '06_ChatGPT CRM Project',
+  // Folder ID of "08_Claude CRM Project" (not a secret; it only works for accounts with access).
+  FOLDER_ID: '1bVkFPtIHF8sWQuDu6hr1_IMptwTsXfv2',
+  FOLDER_NAME: '08_Claude CRM Project',
   MAX_STATES: 10,
   LOCK_WAIT_MS: 25000,
   STALE_PENDING_MS: 15 * 60 * 1000,
