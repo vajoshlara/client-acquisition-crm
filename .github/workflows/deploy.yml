@@ -134,9 +134,11 @@ jobs:
           SCRIPT_ID: ${{ vars.SCRIPT_ID || secrets.SCRIPT_ID }}
         run: |
           umask 077
-          printf '%s' "$CLASPRC_JSON" > "$RUNNER_TEMP/clasprc.json"
+          # Copying from a terminal can insert line breaks where long lines wrap; the key itself never
+          # contains line breaks, so strip them (JSON whitespace between fields is unaffected).
+          printf '%s' "$CLASPRC_JSON" | tr -d '\r\n' > "$RUNNER_TEMP/clasprc.json"
           node -e "JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'))" "$RUNNER_TEMP/clasprc.json" \
-            || { echo "::error::The CLASPRC_JSON secret is not valid JSON. Copy the whole file contents again (DEPLOY.md step 3)."; exit 1; }
+            || { echo "::error::The CLASPRC_JSON secret is not valid JSON (it may be cut off). Recreate it with the editor method in DEPLOY.md step 3 and update the secret."; exit 1; }
           node -e "require('fs').writeFileSync('.clasp.json', JSON.stringify({scriptId: process.argv[1].trim(), rootDir: 'dist/apps-script'}))" "$SCRIPT_ID"
 
       - name: Push code and update the web app

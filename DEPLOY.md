@@ -42,16 +42,16 @@ The deploy key lets GitHub update your Apps Script project. You'll create it in 
 4. Review what **clasp** (Google's official Apps Script tool) asks for, then click **Allow**.
 5. Your browser lands on a page that **fails to load**, with an address starting `http://localhost:8888/?state=…&code=…`. **That's expected.**
 6. Copy the **whole address** from the address bar. Paste it into Cloud Shell and press Enter. You should see that you're logged in.
-7. Show the key:
+7. Open the key in Cloud Shell's editor, so it copies exactly (copying from the terminal can break long lines):
    ```
-   cat ~/.clasprc.json
+   cloudshell edit ~/.clasprc.json
    ```
-   Copy **all** of the output, from the first `{` to the last `}`.
+   The file opens in the editor above the terminal. Click inside it, press **Ctrl+A**, then **Ctrl+C**.
 8. Save it in GitHub:
    1. Go to your repository → **Settings** → **Secrets and variables** → **Actions**.
    2. Open the **Secrets** tab and click **New repository secret**.
    3. Set **Name** to `CLASPRC_JSON`, paste the key as the **Secret**, and click **Add secret**.
-9. Remove the copy from Cloud Shell:
+9. Close the file's tab in the editor, then remove the copy from Cloud Shell:
    ```
    rm ~/.clasprc.json
    ```
